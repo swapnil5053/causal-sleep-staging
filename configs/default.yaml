@@ -1,0 +1,46 @@
+# Configuration for Continuous Sleep Staging from Raw EEG
+
+# Data pipeline parameters
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  target_channel: "EEG Fpz-Cz"
+  resample_rate: 100       # Target sampling rate in Hz
+  sequence_length: 30      # Context length in seconds for sequence models
+  sequence_stride: 15      # Stride for sliding window sequence extraction
+  train_ratio: 0.6         # Split ratios if not doing cross-validation
+  val_ratio: 0.2
+  test_ratio: 0.2
+  seed: 42
+
+# Model architecture parameters
+model:
+  # Multi-Resolution CNN Branch Channels
+  mrcnn_channels_1: 16     # Channels for high-frequency branch (kernel=50)
+  mrcnn_channels_2: 16     # Channels for low-frequency branch (kernel=400)
+  
+  # Temporal Convolutional Network (TCN) stack
+  tcn_channels: [32, 32, 32] # Channel sizes for sequential temporal blocks
+  tcn_kernel_size: 3
+  tcn_dilations: [1, 2, 4]   # Exponential dilation rates
+  tcn_dropout: 0.2
+  
+  # Causal Multi-Head Self-Attention
+  attn_num_heads: 4
+  attn_dropout: 0.1
+  
+  # Output classes (W, N1, N2, N3, REM)
+  num_classes: 5
+
+# Training loop parameters
+train:
+  epochs: 50
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 1e-4
+  loss_type: "focal"       # Options: "focal", "weighted_ce"
+  focal_gamma: 2.0
+  use_weighted_sampler: true # For targeting class imbalance in N1/N3
+  num_folds: 5             # Folds for subject-wise cross-validation
+  checkpoint_dir: "checkpoints"
+  seed: 42
