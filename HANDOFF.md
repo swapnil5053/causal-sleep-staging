@@ -14,7 +14,7 @@ Nothing has been trained or run yet, as this machine lacks the dataset and GPU r
 ## 2. Dataset Setup Instructions
 You need to download the **Sleep-EDF Database Expanded v1.0.0** from PhysioNet. 
 
-* **Source URL:** [PhysioNet Sleep-EDF Expanded v1.0.0](https://physionet.org/content/sleep-edfv1/1.0.0/)
+* **Source URL:** [PhysioNet Sleep-EDF Expanded v1.0.0](https://physionet.org/content/sleep-edfx/1.0.0/)
 * **Subset:** We are evaluating on the **Sleep Cassette** subset (which represents the standard Sleep-EDF-20 protocol).
 * **Required Files:** You will need pairs of files for each subject:
   * `*PSG.edf` (contains the raw polysomnography EEG signal).

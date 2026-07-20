@@ -6,8 +6,8 @@ data:
   processed_dir: "data/processed"
   target_channel: "EEG Fpz-Cz"
   resample_rate: 100       # Target sampling rate in Hz
-  sequence_length: 30      # Context length in seconds for sequence models
-  sequence_stride: 15      # Stride for sliding window sequence extraction
+  sequence_length: 60      # context length in seconds (was 30; longer context helps)
+  sequence_stride: 30      # sliding window stride
   train_ratio: 0.6         # Split ratios if not doing cross-validation
   val_ratio: 0.2
   test_ratio: 0.2

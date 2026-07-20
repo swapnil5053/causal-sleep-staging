@@ -5,7 +5,7 @@ import yaml
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score, cohen_kappa_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score, classification_report, confusion_matrix
 
 from src.data.dataset import SleepDataset
 from src.model.full_model import SleepStagingModel
@@ -167,6 +167,32 @@ def evaluate_fold(fold_idx, config, device, args):
     for name, row in zip(target_names, cm):
         print(f"{name:5s} " + " ".join(f"{val:5d}" for val in row))
     print("==================================================")
+
+    # save metrics to disk
+    os.makedirs("logs", exist_ok=True)
+    report_path = os.path.join("logs", f"fold_{fold_idx}_test_report.txt")
+    with open(report_path, "w") as rf:
+        rf.write(f"Fold {fold_idx} held-out test results\n")
+        rf.write(f"Test subjects: {test_subs}\n")
+        rf.write(f"Overall Accuracy: {accuracy:.4f}\n")
+        rf.write(f"Cohen's Kappa:    {kappa:.4f}\n")
+        rf.write(f"Macro F1-Score:   {macro_f1:.4f}\n\n")
+        rf.write("Per-class F1: " + ", ".join(f"{n}={v:.3f}" for n, v in zip(target_names, per_class_f1)) + "\n\n")
+        rf.write("Classification Report:\n" + report + "\n")
+        rf.write("Confusion Matrix (Rows=True, Cols=Predicted):\n")
+        rf.write("      W    N1    N2    N3   REM\n")
+        for name, row in zip(target_names, cm):
+            rf.write(f"{name:5s} " + " ".join(f"{val:5d}" for val in row) + "\n")
+
+    # append headline metrics, one row per fold
+    summary_path = os.path.join("logs", "test_metrics_summary.csv")
+    write_header = not os.path.exists(summary_path)
+    with open(summary_path, "a") as sf:
+        if write_header:
+            sf.write("fold,accuracy,kappa,macro_f1,f1_W,f1_N1,f1_N2,f1_N3,f1_REM\n")
+        sf.write(f"{fold_idx},{accuracy:.4f},{kappa:.4f},{macro_f1:.4f}," +
+                 ",".join(f"{v:.4f}" for v in per_class_f1) + "\n")
+    print(f"Saved test report to {report_path} and appended headline metrics to {summary_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Sleep Staging Causal Network.")

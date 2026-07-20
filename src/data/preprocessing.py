@@ -218,20 +218,37 @@ def main():
         print(f"Available subjects in directory: {sorted(list(set(p[0] for p in pairs)))}")
         return
         
-    # Process and save
+    # Group by subject so both nights (e.g. SC4001/SC4002 -> subject 00) go into one
+    # file instead of the second night overwriting the first.
+    from collections import defaultdict
+    grouped = defaultdict(list)
     for sub_id, psg_path, hypno_path in pairs:
+        grouped[sub_id].append((psg_path, hypno_path))
+
+    for sub_id, recordings in sorted(grouped.items()):
         print(f"\n=========================================")
-        print(f"Processing Subject: {sub_id}")
+        print(f"Processing Subject: {sub_id}  ({len(recordings)} recording(s)/night(s))")
         print(f"=========================================")
-        try:
-            x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate)
-            out_path = os.path.join(processed_dir, f"subject_{sub_id}.npz")
-            np.savez_compressed(out_path, x=x, y=y)
-            print(f"Successfully saved processed subject {sub_id} to {out_path}")
-        except Exception as e:
-            print(f"Error processing subject {sub_id}: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        xs, ys = [], []
+        for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
+            try:
+                x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate)
+                xs.append(x)
+                ys.append(y)
+            except Exception as e:
+                print(f"Error processing recording {os.path.basename(psg_path)}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+        if not xs:
+            print(f"No valid recordings processed for subject {sub_id}. Skipping.")
+            continue
+
+        x = np.concatenate(xs, axis=0)  # (total_seconds, 100)
+        y = np.concatenate(ys, axis=0)  # (total_seconds,)
+        out_path = os.path.join(processed_dir, f"subject_{sub_id}.npz")
+        np.savez_compressed(out_path, x=x, y=y)
+        print(f"Successfully saved subject {sub_id} ({len(x)} seconds from {len(xs)} night(s)) to {out_path}")
 
 if __name__ == "__main__":
     main()
