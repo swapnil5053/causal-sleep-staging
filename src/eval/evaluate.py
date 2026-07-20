@@ -102,7 +102,9 @@ def evaluate_fold(fold_idx, config, device, args):
     )
     
     # Load Model
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # weights_only=False: the checkpoint stores config/metrics alongside the weights,
+    # and newer torch defaults this to True which would reject them.
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model = SleepStagingModel(config=config)
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)

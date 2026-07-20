@@ -49,8 +49,8 @@ class FocalLoss(nn.Module):
         
         # Apply class balancing weight alpha
         if self.alpha is not None:
-            # Gather alpha_t for correct targets
-            alpha_t = self.alpha[targets]
+            # keep the class weights on whatever device the batch is on
+            alpha_t = self.alpha.to(targets.device)[targets]
             loss = alpha_t * loss
             
         if self.reduction == 'mean':
@@ -92,4 +92,5 @@ class WeightedCrossEntropyLoss(nn.Module):
         logits = logits.view(-1, logits.size(-1))
         targets = targets.view(-1)
         
-        return F.cross_entropy(logits, targets, weight=self.weights, reduction=self.reduction)
+        weights = self.weights.to(logits.device) if self.weights is not None else None
+        return F.cross_entropy(logits, targets, weight=weights, reduction=self.reduction)

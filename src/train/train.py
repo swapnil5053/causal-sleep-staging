@@ -194,7 +194,10 @@ def run_fold(fold_idx, config, device, args):
         weights = len(flat_labels) / (5.0 * counts)
         criterion = WeightedCrossEntropyLoss(weights=weights)
         print(f"Using Weighted Cross Entropy Loss (weights={weights.round(3)})")
-        
+
+    # the loss holds class weights as a buffer, so it has to sit on the same device as the batch
+    criterion = criterion.to(device)
+
     # Optimizer and Scheduler
     lr = args.lr or config['train']['lr']
     weight_decay = config['train']['weight_decay']

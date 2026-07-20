@@ -130,8 +130,10 @@ def get_cv_splits(subject_ids, num_folds=5, fold_idx=0, seed=42):
     random.shuffle(shuffled)
     
     # Split into K folds
+    # np.array_split returns numpy strings; cast back to plain str so the split
+    # metadata stays yaml-serializable.
     folds = np.array_split(shuffled, num_folds)
-    folds = [list(f) for f in folds]
+    folds = [[str(s) for s in f] for f in folds]
     
     # Fold at fold_idx is the test set
     test_subs = folds[fold_idx]

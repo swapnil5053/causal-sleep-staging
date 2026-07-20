@@ -37,7 +37,7 @@ train:
   epochs: 50
   batch_size: 64
   lr: 0.001
-  weight_decay: 1e-4
+  weight_decay: 0.0001   # note: plain 1e-4 is parsed by yaml as a string, not a float
   loss_type: "focal"       # Options: "focal", "weighted_ce"
   focal_gamma: 2.0
   use_weighted_sampler: true # For targeting class imbalance in N1/N3
