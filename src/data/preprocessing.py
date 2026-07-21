@@ -34,17 +34,23 @@ def find_eeg_channel(channel_names, target="EEG Fpz-Cz"):
             
     raise ValueError(f"Could not find EEG channel matching target '{target}' in channels: {channel_names}")
 
-def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_rate=100):
+def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_rate=100,
+                    wake_trim_minutes=30):
     """
     Load raw PSG and Hypnogram, extract target channel, resample,
     perform Z-score normalization per 30-second epoch, and segment into 1-second windows.
-    
+
     Args:
         psg_path (str): Path to PSG.edf file.
         hypno_path (str): Path to Hypnogram.edf file.
         target_channel (str): Name of the channel to extract.
         resample_rate (float): Target sampling rate (Hz).
-        
+        wake_trim_minutes (float): How many minutes of Wake to keep either side of the
+            sleep period. Sleep-EDF cassette records ~20h per subject, so most of the
+            recording is the subject awake and out of bed; keeping all of it makes Wake
+            ~68% of the data and inflates accuracy. Standard protocol (DeepSleepNet,
+            AttnSleep, TinySleepNet) keeps 30 min either side. Set to None to keep everything.
+
     Returns:
         tuple: (signal_windows, labels)
             signal_windows: np.ndarray of shape (N_seconds, 100)
@@ -108,10 +114,27 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     
     processed_signals = []
     processed_labels = []
-    
+
     skipped_blocks = 0
-    
-    for i in range(num_30s_blocks):
+
+    # Label of each 30s epoch (-1 = unscored/movement)
+    epoch_labels_all = np.array([second_labels[i * 30] for i in range(num_30s_blocks)])
+
+    # Trim the long awake stretches either side of the sleep period.
+    first_block, last_block = 0, num_30s_blocks
+    if wake_trim_minutes is not None:
+        sleep_blocks = np.where((epoch_labels_all != -1) & (epoch_labels_all != 0))[0]
+        if len(sleep_blocks) > 0:
+            margin = int(round(wake_trim_minutes * 2))  # 30s epochs -> 2 per minute
+            first_block = max(0, sleep_blocks[0] - margin)
+            last_block = min(num_30s_blocks, sleep_blocks[-1] + margin + 1)
+            trimmed = num_30s_blocks - (last_block - first_block)
+            print(f"Wake trimming: keeping epochs {first_block}-{last_block - 1} "
+                  f"({trimmed} epochs / {trimmed * 30 / 3600:.1f} h of surrounding Wake removed)")
+        else:
+            print("Wake trimming: no sleep epochs found, keeping the full recording.")
+
+    for i in range(first_block, last_block):
         start_sec = i * 30
         end_sec = (i + 1) * 30
         
@@ -167,6 +190,7 @@ def main():
     processed_dir = args.processed_dir or config['data']['processed_dir']
     target_channel = config['data']['target_channel']
     resample_rate = config['data']['resample_rate']
+    wake_trim_minutes = config['data'].get('wake_trim_minutes', 30)
     
     os.makedirs(processed_dir, exist_ok=True)
     
@@ -232,7 +256,8 @@ def main():
         xs, ys = [], []
         for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
             try:
-                x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate)
+                x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate,
+                                       wake_trim_minutes=wake_trim_minutes)
                 xs.append(x)
                 ys.append(y)
             except Exception as e:

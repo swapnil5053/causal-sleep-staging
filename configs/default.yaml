@@ -6,6 +6,8 @@ data:
   processed_dir: "data/processed"
   target_channel: "EEG Fpz-Cz"
   resample_rate: 100       # Target sampling rate in Hz
+  wake_trim_minutes: 30    # keep 30 min of wake either side of sleep, drop the rest
+                           # (standard protocol; without it Wake is ~68% of the data)
   sequence_length: 60      # context length in seconds (was 30; longer context helps)
   sequence_stride: 30      # sliding window stride
   train_ratio: 0.6         # Split ratios if not doing cross-validation
@@ -40,7 +42,8 @@ train:
   weight_decay: 0.0001   # note: plain 1e-4 is parsed by yaml as a string, not a float
   loss_type: "focal"       # Options: "focal", "weighted_ce"
   focal_gamma: 2.0
-  use_weighted_sampler: true # For targeting class imbalance in N1/N3
+  use_weighted_sampler: false # focal loss alpha already handles imbalance; stacking both
+                              # made the model spam N1 (precision 0.12-0.20)
   num_folds: 5             # Folds for subject-wise cross-validation
   checkpoint_dir: "checkpoints"
   seed: 42
