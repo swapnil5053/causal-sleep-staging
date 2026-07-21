@@ -106,8 +106,9 @@ def run_fold(fold_idx, config, device, args):
     
     processed_dir = args.processed_dir or config['data']['processed_dir']
     checkpoint_dir = args.checkpoint_dir or config['train']['checkpoint_dir']
+    log_dir = args.log_dir or config['train'].get('log_dir', 'logs')
     os.makedirs(checkpoint_dir, exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     
     # Get subject splits for this fold
     subject_ids = get_all_subject_ids(processed_dir)
@@ -206,10 +207,17 @@ def run_fold(fold_idx, config, device, args):
     epochs = args.epochs or config['train']['epochs']
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     
-    # Training state trackers
-    best_val_f1 = 0.0
+    # Checkpoint on the metric we actually report. Validation macro-F1 and kappa peak at
+    # different epochs, so selecting on kappa keeps the saved model consistent with the
+    # headline number.
+    metric_name = config['train'].get('checkpoint_metric', 'kappa')
+    patience = config['train'].get('early_stopping_patience', 0)
+
+    best_score = -1.0
+    best_epoch = 0
+    epochs_since_improve = 0
     history = []
-    
+
     for epoch in range(1, epochs + 1):
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc, val_kappa, val_f1, per_class_f1 = validate(model, val_loader, criterion, device)
@@ -236,27 +244,37 @@ def run_fold(fold_idx, config, device, args):
               f"Train Loss: {train_loss:.4f} - Acc: {train_acc:.3f} | "
               f"Val Loss: {val_loss:.4f} - Acc: {val_acc:.3f} - Kappa: {val_kappa:.3f} - MacroF1: {val_f1:.3f} - N1F1: {per_class_f1[1]:.3f}")
               
-        # Save best model based on validation Macro F1 score
-        if val_f1 > best_val_f1:
-            best_val_f1 = val_f1
+        score = val_kappa if metric_name == "kappa" else val_f1
+        if score > best_score:
+            best_score = score
+            best_epoch = epoch
+            epochs_since_improve = 0
             checkpoint_path = os.path.join(checkpoint_dir, f"best_model_fold_{fold_idx}.pth")
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_f1': val_f1,
+                'val_kappa': val_kappa,
+                'selection_metric': metric_name,
                 'config': config
             }, checkpoint_path)
             print(f"----> Saved best model checkpoint to {checkpoint_path}")
-            
+        else:
+            epochs_since_improve += 1
+            if patience and epochs_since_improve >= patience:
+                print(f"Early stopping at epoch {epoch}: no improvement in val {metric_name} "
+                      f"for {patience} epochs (best {best_score:.4f} at epoch {best_epoch}).")
+                break
+
     # Save metric history to CSV
     history_df = pd.DataFrame(history)
-    history_path = os.path.join("logs", f"fold_{fold_idx}_metrics.csv")
+    history_path = os.path.join(log_dir, f"fold_{fold_idx}_metrics.csv")
     history_df.to_csv(history_path, index=False)
     print(f"Fold {fold_idx} finished. CSV history saved to {history_path}")
-    print(f"Best Validation Macro F1: {best_val_f1:.4f}")
-    
-    return best_val_f1
+    print(f"Best validation {metric_name}: {best_score:.4f} (epoch {best_epoch})")
+
+    return best_score
 
 def main():
     parser = argparse.ArgumentParser(description="Train Sleep Staging Causal Network.")
@@ -269,6 +287,7 @@ def main():
     parser.add_argument("--gamma", type=float, default=None, help="Override focal loss gamma.")
     parser.add_argument("--processed_dir", type=str, default=None, help="Override processed data directory.")
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="Override checkpoint directory.")
+    parser.add_argument("--log_dir", type=str, default=None, help="Override directory for metric CSVs.")
     args = parser.parse_args()
     
     config = get_config(args.config)
@@ -287,10 +306,11 @@ def main():
             score = run_fold(f, config, device, args)
             fold_scores.append(score)
         print(f"\n==================================================")
+        metric_name = config['train'].get('checkpoint_metric', 'kappa')
         print(f"Cross-Validation Summary:")
         for idx, score in enumerate(fold_scores):
-            print(f"  Fold {idx}: Best Macro F1 = {score:.4f}")
-        print(f"Average Macro F1: {np.mean(fold_scores):.4f}")
+            print(f"  Fold {idx}: best validation {metric_name} = {score:.4f}")
+        print(f"Average validation {metric_name}: {np.mean(fold_scores):.4f}")
         print(f"==================================================")
     else:
         if args.fold < 0 or args.fold >= num_folds:

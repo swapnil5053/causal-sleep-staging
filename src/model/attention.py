@@ -7,14 +7,17 @@ class CausalSelfAttention(nn.Module):
     Ensures that for any time step i, the model only attends to steps j <= i (past and present).
     Used to model complex context dependencies across seconds in sleep recordings.
     """
-    def __init__(self, embed_dim, num_heads, dropout=0.1):
+    def __init__(self, embed_dim, num_heads, dropout=0.1, causal=True):
         """
         Args:
             embed_dim (int): Input feature size. Must be divisible by num_heads.
             num_heads (int): Number of attention heads.
             dropout (float): Attention dropout.
+            causal (bool): If True, mask out positions j > i. If False, attend over the whole
+                window, which is the non-causal variant used for the causality ablation.
         """
         super(CausalSelfAttention, self).__init__()
+        self.causal = causal
         
         assert embed_dim % num_heads == 0, f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
         
@@ -39,8 +42,8 @@ class CausalSelfAttention(nn.Module):
         # Create a boolean causal mask of shape (L, L)
         # where elements above the diagonal are True (masked out) and others are False (allowed).
         # We construct it dynamically on the device of x.
-        mask = torch.triu(torch.ones(L, L, device=x.device), diagonal=1).bool()
-        
+        mask = torch.triu(torch.ones(L, L, device=x.device), diagonal=1).bool() if self.causal else None
+
         # Run Multi-Head Attention
         # attn_output shape: (batch_size, L, embed_dim)
         attn_out, _ = self.mha(

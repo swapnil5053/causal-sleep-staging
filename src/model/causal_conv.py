@@ -7,7 +7,7 @@ class CausalConv1d(nn.Module):
     1D Causal Convolution layer that prevents information flow from future steps.
     Applies asymmetric padding to the left of the input signal before calling PyTorch's Conv1d.
     """
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, **kwargs):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, causal=True, **kwargs):
         """
         Args:
             in_channels (int): Number of input channels.
@@ -19,7 +19,11 @@ class CausalConv1d(nn.Module):
         super(CausalConv1d, self).__init__()
         self.kernel_size = kernel_size
         self.dilation = dilation
-        # Causal padding size to block future leakage
+        self.causal = causal
+        # Total padding needed to keep the sequence length unchanged.
+        # Causal: all of it on the left, so no future sample can reach the output.
+        # Non-causal: split either side, which lets the kernel see the future. Used only
+        # for the causality ablation, where everything else is held fixed.
         self.causal_padding = (kernel_size - 1) * dilation
         
         # Standard convolution with no padding (we pad manually in forward)
@@ -42,5 +46,9 @@ class CausalConv1d(nn.Module):
             Tensor: Output tensor of shape (batch_size, out_channels, seq_len).
         """
         # F.pad format for 1D: (pad_left, pad_right) on the last dimension
-        x_padded = F.pad(x, (self.causal_padding, 0))
+        if self.causal:
+            x_padded = F.pad(x, (self.causal_padding, 0))
+        else:
+            left = self.causal_padding // 2
+            x_padded = F.pad(x, (left, self.causal_padding - left))
         return self.conv(x_padded)

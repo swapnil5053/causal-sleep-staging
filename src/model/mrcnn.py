@@ -12,7 +12,8 @@ class MultiResolutionCNN(nn.Module):
     The outputs of both branches are concatenated along the channel dimension
     and pooled down to a 1-second resolution.
     """
-    def __init__(self, in_channels=1, channels_1=16, channels_2=16, downsample_factor=100, dropout=0.2):
+    def __init__(self, in_channels=1, channels_1=16, channels_2=16, downsample_factor=100, dropout=0.2,
+                 causal=True):
         """
         Args:
             in_channels (int): Input signal channels. Default: 1.
@@ -25,7 +26,7 @@ class MultiResolutionCNN(nn.Module):
         
         # High-frequency branch (small receptive field)
         self.branch_high = nn.Sequential(
-            CausalConv1d(in_channels, channels_1, kernel_size=50),
+            CausalConv1d(in_channels, channels_1, kernel_size=50, causal=causal),
             nn.BatchNorm1d(channels_1),
             nn.ReLU(),
             nn.Dropout(dropout)
@@ -33,7 +34,7 @@ class MultiResolutionCNN(nn.Module):
         
         # Low-frequency branch (large receptive field)
         self.branch_low = nn.Sequential(
-            CausalConv1d(in_channels, channels_2, kernel_size=400),
+            CausalConv1d(in_channels, channels_2, kernel_size=400, causal=causal),
             nn.BatchNorm1d(channels_2),
             nn.ReLU(),
             nn.Dropout(dropout)

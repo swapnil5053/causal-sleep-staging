@@ -7,7 +7,7 @@ class TemporalResidualBlock(nn.Module):
     A single residual block for Temporal Convolutional Networks (TCN)
     featuring causal dilated convolutions, batch normalization, and dropout.
     """
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, dropout=0.2):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, dropout=0.2, causal=True):
         """
         Args:
             in_channels (int): Input channel dimension.
@@ -18,12 +18,12 @@ class TemporalResidualBlock(nn.Module):
         """
         super(TemporalResidualBlock, self).__init__()
         
-        self.conv1 = CausalConv1d(in_channels, out_channels, kernel_size, dilation=dilation)
+        self.conv1 = CausalConv1d(in_channels, out_channels, kernel_size, dilation=dilation, causal=causal)
         self.bn1 = nn.BatchNorm1d(out_channels)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
         
-        self.conv2 = CausalConv1d(out_channels, out_channels, kernel_size, dilation=dilation)
+        self.conv2 = CausalConv1d(out_channels, out_channels, kernel_size, dilation=dilation, causal=causal)
         self.bn2 = nn.BatchNorm1d(out_channels)
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(dropout)
@@ -65,7 +65,8 @@ class TemporalModel(nn.Module):
     TCN stack that processes downsampled second-by-second sleep features.
     Configurable depth, channel sizes, and dilation schedule.
     """
-    def __init__(self, in_channels, channel_list=[32, 32, 32], kernel_size=3, dilations=[1, 2, 4], dropout=0.2):
+    def __init__(self, in_channels, channel_list=[32, 32, 32], kernel_size=3, dilations=[1, 2, 4], dropout=0.2,
+                 causal=True):
         """
         Args:
             in_channels (int): Input feature size (concatenated MRCNN channels).
@@ -87,7 +88,8 @@ class TemporalModel(nn.Module):
                     out_channels=channel_list[i],
                     kernel_size=kernel_size,
                     dilation=dilations[i],
-                    dropout=dropout
+                    dropout=dropout,
+                    causal=causal
                 )
             )
             curr_channels = channel_list[i]

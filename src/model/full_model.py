@@ -39,6 +39,13 @@ class SleepStagingModel(nn.Module):
         attn_dropout = kwargs.get("attn_dropout", model_cfg.get("attn_dropout", 0.1))
         
         num_classes = kwargs.get("num_classes", model_cfg.get("num_classes", 5))
+
+        # Causality switch. True is the real model. False keeps every layer, channel and
+        # parameter identical but lets convolutions pad symmetrically and drops the attention
+        # mask, so the only difference is access to future signal. Used to measure the cost
+        # of the causal constraint on this exact architecture.
+        causal = kwargs.get("causal", model_cfg.get("causal", True))
+        self.causal = causal
         
         # 1. Multi-Resolution CNN
         self.mrcnn = MultiResolutionCNN(
@@ -46,7 +53,8 @@ class SleepStagingModel(nn.Module):
             channels_1=mrcnn_ch1,
             channels_2=mrcnn_ch2,
             downsample_factor=100, # downsample 100 Hz to 1 Hz
-            dropout=tcn_dropout
+            dropout=tcn_dropout,
+            causal=causal
         )
         
         # 2. Temporal Convolutional Network
@@ -55,14 +63,16 @@ class SleepStagingModel(nn.Module):
             channel_list=tcn_channels,
             kernel_size=tcn_kernel,
             dilations=tcn_dilations,
-            dropout=tcn_dropout
+            dropout=tcn_dropout,
+            causal=causal
         )
         
         # 3. Causal Multi-Head Self-Attention
         self.attention = CausalSelfAttention(
             embed_dim=self.temporal.out_channels,
             num_heads=attn_heads,
-            dropout=attn_dropout
+            dropout=attn_dropout,
+            causal=causal
         )
         
         # 4. Final Staging Classifier

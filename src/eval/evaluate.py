@@ -129,11 +129,33 @@ def evaluate_fold(fold_idx, config, device, args):
     kappa = cohen_kappa_score(all_targets, all_preds)
     macro_f1 = f1_score(all_targets, all_preds, average='macro', zero_division=0)
     
+    # Also score at 30 s granularity by majority-voting each epoch's 30 per-second predictions.
+    # Ground truth is constant inside an epoch (labels are replicated), so this is the number
+    # that is directly comparable to published 30 s-epoch results.
+    epoch30 = {}
+    if seq_len % 30 == 0:
+        p30 = np.asarray(all_preds).reshape(-1, 30)
+        t30 = np.asarray(all_targets).reshape(-1, 30)
+        preds_e = np.array([np.bincount(r, minlength=5).argmax() for r in p30])
+        targets_e = t30[:, 0]
+        epoch30 = {
+            "accuracy": accuracy_score(targets_e, preds_e),
+            "kappa": cohen_kappa_score(targets_e, preds_e),
+            "macro_f1": f1_score(targets_e, preds_e, average='macro', zero_division=0),
+            "n_epochs": len(targets_e),
+        }
+
     print(f"\nHeld-Out Test Set Metrics:")
     print(f"  Overall Accuracy : {accuracy:.4f} ({accuracy*100:.2f}%)")
     print(f"  Cohen's Kappa    : {kappa:.4f}")
     print(f"  Macro F1-Score   : {macro_f1:.4f}")
     
+    if epoch30:
+        print(f"\nAggregated to 30s epochs (comparable to published 30s results):")
+        print(f"  Overall Accuracy : {epoch30['accuracy']:.4f} ({epoch30['accuracy']*100:.2f}%)")
+        print(f"  Cohen's Kappa    : {epoch30['kappa']:.4f}")
+        print(f"  Macro F1-Score   : {epoch30['macro_f1']:.4f}   over {epoch30['n_epochs']:,} epochs")
+
     # Print target benchmark comparison
     print(f"\nTarget Benchmark Comparison:")
     print(f"  Accuracy (Target >= 78%): {'PASSED' if accuracy >= 0.78 else 'BELOW TARGET'}")
@@ -171,14 +193,20 @@ def evaluate_fold(fold_idx, config, device, args):
     print("==================================================")
 
     # save metrics to disk
-    os.makedirs("logs", exist_ok=True)
-    report_path = os.path.join("logs", f"fold_{fold_idx}_test_report.txt")
+    log_dir = args.log_dir or config['train'].get('log_dir', 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    report_path = os.path.join(log_dir, f"fold_{fold_idx}_test_report.txt")
     with open(report_path, "w") as rf:
         rf.write(f"Fold {fold_idx} held-out test results\n")
         rf.write(f"Test subjects: {test_subs}\n")
         rf.write(f"Overall Accuracy: {accuracy:.4f}\n")
         rf.write(f"Cohen's Kappa:    {kappa:.4f}\n")
-        rf.write(f"Macro F1-Score:   {macro_f1:.4f}\n\n")
+        rf.write(f"Macro F1-Score:   {macro_f1:.4f}\n")
+        if epoch30:
+            rf.write(f"\nAggregated to 30s epochs ({epoch30['n_epochs']:,} epochs):\n")
+            rf.write(f"Accuracy: {epoch30['accuracy']:.4f}  Kappa: {epoch30['kappa']:.4f}  "
+                     f"Macro F1: {epoch30['macro_f1']:.4f}\n")
+        rf.write("\n")
         rf.write("Per-class F1: " + ", ".join(f"{n}={v:.3f}" for n, v in zip(target_names, per_class_f1)) + "\n\n")
         rf.write("Classification Report:\n" + report + "\n")
         rf.write("Confusion Matrix (Rows=True, Cols=Predicted):\n")
@@ -187,13 +215,16 @@ def evaluate_fold(fold_idx, config, device, args):
             rf.write(f"{name:5s} " + " ".join(f"{val:5d}" for val in row) + "\n")
 
     # append headline metrics, one row per fold
-    summary_path = os.path.join("logs", "test_metrics_summary.csv")
+    summary_path = os.path.join(log_dir, "test_metrics_summary.csv")
     write_header = not os.path.exists(summary_path)
     with open(summary_path, "a") as sf:
         if write_header:
-            sf.write("fold,accuracy,kappa,macro_f1,f1_W,f1_N1,f1_N2,f1_N3,f1_REM\n")
+            sf.write("fold,accuracy,kappa,macro_f1,f1_W,f1_N1,f1_N2,f1_N3,f1_REM,"
+                     "acc_30s,kappa_30s,macro_f1_30s\n")
         sf.write(f"{fold_idx},{accuracy:.4f},{kappa:.4f},{macro_f1:.4f}," +
-                 ",".join(f"{v:.4f}" for v in per_class_f1) + "\n")
+                 ",".join(f"{v:.4f}" for v in per_class_f1) +
+                 (f",{epoch30['accuracy']:.4f},{epoch30['kappa']:.4f},{epoch30['macro_f1']:.4f}"
+                  if epoch30 else ",,,") + "\n")
     print(f"Saved test report to {report_path} and appended headline metrics to {summary_path}")
 
 def main():
@@ -202,6 +233,7 @@ def main():
     parser.add_argument("--fold", type=int, default=0, help="Fold index to evaluate (0 to K-1).")
     parser.add_argument("--processed_dir", type=str, default=None, help="Override processed data directory.")
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="Override checkpoint directory.")
+    parser.add_argument("--log_dir", type=str, default=None, help="Override directory for metric outputs.")
     parser.add_argument("--benchmark", action="store_true", help="Run CPU inference latency benchmark instead of evaluation.")
     args = parser.parse_args()
     

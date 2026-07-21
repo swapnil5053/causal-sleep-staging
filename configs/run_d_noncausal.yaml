@@ -1,3 +1,7 @@
+# Run D: identical to Run C in every way except causal: false.
+# Convolutions pad symmetrically and the attention mask is removed, so the model can
+# see future signal. Same layers, same parameter count, same data, same splits.
+# Run C minus Run D = the cost of the causal constraint on this exact architecture.
 # Configuration for Continuous Sleep Staging from Raw EEG
 
 # Data pipeline parameters
@@ -8,8 +12,8 @@ data:
   resample_rate: 100       # Target sampling rate in Hz
   wake_trim_minutes: 30    # keep 30 min of wake either side of sleep, drop the rest
                            # (standard protocol; without it Wake is ~68% of the data)
-  sequence_length: 60      # context length in seconds (was 30; longer context helps)
-  sequence_stride: 30      # sliding window stride
+  sequence_length: 120      # context length in seconds (was 30; longer context helps)
+  sequence_stride: 60      # sliding window stride
   train_ratio: 0.6         # Split ratios if not doing cross-validation
   val_ratio: 0.2
   test_ratio: 0.2
@@ -22,9 +26,9 @@ model:
   mrcnn_channels_2: 16     # Channels for low-frequency branch (kernel=400)
   
   # Temporal Convolutional Network (TCN) stack
-  tcn_channels: [32, 32, 32] # Channel sizes for sequential temporal blocks
+  tcn_channels: [32, 32, 32, 32] # Channel sizes for sequential temporal blocks
   tcn_kernel_size: 3
-  tcn_dilations: [1, 2, 4]   # Exponential dilation rates
+  tcn_dilations: [1, 2, 4, 8]   # Exponential dilation rates
   tcn_dropout: 0.2
   
   # Causal Multi-Head Self-Attention
@@ -36,14 +40,14 @@ model:
 
   # Causality switch. true = the real model. false keeps the architecture and
   # parameter count identical but allows access to future signal (ablation only).
-  causal: true
+  causal: false
 
 # Training loop parameters
 train:
   epochs: 40              # cap only; early stopping ends the run when validation kappa plateaus
   early_stopping_patience: 8   # stop if the checkpoint metric has not improved in 8 epochs
   checkpoint_metric: "kappa"   # "kappa" or "macro_f1". Kappa is the reported headline.
-  log_dir: "logs"         # per-run output dir, override so runs do not overwrite each other
+  log_dir: "logs_runD"         # per-run output dir, override so runs do not overwrite each other
   batch_size: 64
   lr: 0.001
   weight_decay: 0.0001   # note: plain 1e-4 is parsed by yaml as a string, not a float
@@ -52,5 +56,5 @@ train:
   use_weighted_sampler: false # focal loss alpha already handles imbalance; stacking both
                               # made the model spam N1 (precision 0.12-0.20)
   num_folds: 5             # Folds for subject-wise cross-validation
-  checkpoint_dir: "checkpoints"
+  checkpoint_dir: "checkpoints_runD"
   seed: 42
