@@ -16,17 +16,18 @@ Best causal configuration is run B (120 s context).
 | Accuracy at 30 s granularity | 76.1% |
 | Kappa at 30 s granularity | 0.684 |
 | Parameters | 30,757 |
-| CPU inference | under 0.074 ms per second of EEG (Intel Core i9-14900HX) |
+| CPU inference | 0.026 ms per second of EEG (Intel Core i9-14900HX) |
 
-Measured latency, Intel Core i9-14900HX, 200 runs:
+Measured latency, Intel Core i9-14900HX, 200 runs each:
 
-| Configuration | ms per 1 s of EEG | Target |
+| Configuration | ms per 1 s of EEG | Margin vs 3 ms/s target |
 |---|---|---|
-| 60 s context, 3 TCN blocks | 0.045 | 3.0 |
-| 120 s context, 4 TCN blocks | 0.074 | 3.0 |
+| 60 s context, 3 TCN blocks | 0.045 | 67x |
+| 120 s context, 3 TCN blocks (run B) | 0.026 | 114x |
+| 120 s context, 4 TCN blocks (run C) | 0.074 | 41x |
 
-Run B (120 s, 3 blocks) sits between the two and has not been benchmarked separately; it is
-bounded above by the 4-block figure.
+Per-second latency falls as the context window grows, because fixed per-call overhead is
+amortised over more output steps.
 
 ## Per fold, run B
 

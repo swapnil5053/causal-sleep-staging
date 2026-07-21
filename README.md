@@ -5,7 +5,7 @@ only past signal.
 
 Most sleep staging models score 30-second epochs and read the whole night at once, so they
 cannot run live. This one is strictly causal: the prediction at time *t* depends only on input
-up to *t*. It has 30,757 parameters and runs at 0.045 ms per second of EEG on an Intel Core
+up to *t*. It has 30,757 parameters and runs at 0.026 ms per second of EEG on an Intel Core
 i9-14900HX CPU, so it can keep up with a live stream on a wearable.
 
 The repository also contains a controlled measurement of what that constraint costs: the same
@@ -24,7 +24,7 @@ channel Fpz-Cz at 100 Hz, five classes (W, N1, N2, N3, REM).
 | Accuracy at 30 s granularity | 76.1% |
 | Kappa at 30 s granularity | 0.684 |
 | Parameters | 30,757 |
-| CPU inference | 0.045 ms per second of EEG (Intel Core i9-14900HX) |
+| CPU inference | 0.026 ms per second of EEG (Intel Core i9-14900HX) |
 
 Removing the causal constraint from the same 37,093-parameter model, holding data and folds
 fixed, changes kappa by only 0.037, and a paired test over the five folds cannot distinguish
