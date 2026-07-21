@@ -18,14 +18,21 @@ channel Fpz-Cz at 100 Hz, five classes (W, N1, N2, N3, REM).
 
 | Metric | Value |
 |---|---|
-| Accuracy | 72.8% |
-| Cohen's kappa | 0.643 |
-| Macro F1 | 0.679 |
+| Accuracy | 74.4% |
+| Cohen's kappa | 0.662 |
+| Macro F1 | 0.688 |
+| Accuracy at 30 s granularity | 76.1% |
+| Kappa at 30 s granularity | 0.684 |
 | Parameters | 30,757 |
 | CPU inference | 0.045 ms per second of EEG (Intel Core i9-14900HX) |
 
-Per-fold numbers, the preprocessing ablation, and a comparison against published baselines are
-in [RESULTS.md](RESULTS.md), along with the exact configuration each run used.
+Removing the causal constraint from the same 37,093-parameter model, holding data and folds
+fixed, changes kappa by only 0.037, and a paired test over the five folds cannot distinguish
+that from zero (t(4) = -1.42, p = 0.23). The causal model is worse in four folds and better in
+one.
+
+Per-fold numbers, the configuration ablation, the causality comparison and the preprocessing
+ablation are in [RESULTS.md](RESULTS.md).
 
 ## Model
 
