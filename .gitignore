@@ -54,6 +54,9 @@ Thumbs.db
 # Run artifacts (curated copies live in results/)
 logs/
 train_log*.txt
-smoke_test.py
 RUN_GUIDE.md
 CONSISTENCY_NOTES.md
+
+# Ablation run outputs
+logs_run*/
+checkpoints_run*/
