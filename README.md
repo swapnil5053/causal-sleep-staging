@@ -13,26 +13,39 @@ architecture, parameter for parameter, trained with and without access to future
 
 ## Results
 
-Subject-wise 5-fold cross-validation on Sleep-EDF-20 (20 subjects, 39 recordings), single
-channel Fpz-Cz at 100 Hz, five classes (W, N1, N2, N3, REM).
+Subject-wise 5-fold cross-validation on Sleep-EDF, single channel Fpz-Cz at 100 Hz, five classes
+(W, N1, N2, N3, REM).
 
-| Metric | Value |
-|---|---|
-| Accuracy | 74.4% |
-| Cohen's kappa | 0.662 |
-| Macro F1 | 0.688 |
-| Accuracy at 30 s granularity | 76.1% |
-| Kappa at 30 s granularity | 0.684 |
-| Parameters | 30,757 |
-| CPU inference | 0.026 ms per second of EEG (Intel Core i9-14900HX) |
+| Metric | Sleep-EDF-20 | Sleep-EDF-78 |
+|---|---|---|
+| Accuracy | 74.4% | 72.3% |
+| Cohen's kappa | 0.662 | 0.634 |
+| Macro F1 | 0.688 | 0.662 |
+| N1 F1 | 0.336 | 0.398 |
+| Kappa at 30 s granularity | 0.684 | 0.652 |
+| Fold-to-fold kappa sd | 0.092 | 0.030 |
+| Parameters | 30,757 | 30,757 |
+| CPU inference | 0.026 ms/s | 0.026 ms/s |
 
-Removing the causal constraint from the same 37,093-parameter model, holding data and folds
-fixed, changes kappa by only 0.037, and a paired test over the five folds cannot distinguish
-that from zero (t(4) = -1.42, p = 0.23). The causal model is worse in four folds and better in
-one.
+### What causality costs
 
-Per-fold numbers, the configuration ablation, the causality comparison and the preprocessing
-ablation are in [RESULTS.md](RESULTS.md).
+The same model with the causal constraint removed, holding parameters, data and folds fixed:
+
+| Subjects | Causal | Non-causal | Difference | p | Folds causal loses |
+|---|---|---|---|---|---|
+| 20 | 0.6625 | 0.6482 | +0.014 | 0.276 | 2 of 5 |
+| 78 | 0.6335 | 0.6570 | **-0.024** | **0.013** | **5 of 5** |
+
+On 78 subjects, giving the model access to future signal improves kappa by 0.024, consistently
+across every fold (paired t(4) = -4.24, p = 0.013). That is the measurable price of running in
+real time.
+
+The same comparison on 20 subjects is not significant and its sign is unstable, because
+fold-to-fold variance there is three times larger (kappa sd 0.092 against 0.030). Causality
+penalties measured on 20 subjects should be treated with caution.
+
+Per-fold numbers, the configuration and preprocessing ablations, and the full baseline
+comparison are in [RESULTS.md](RESULTS.md).
 
 ## Model
 

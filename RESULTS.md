@@ -1,97 +1,81 @@
 # Results
 
-Subject-wise 5-fold cross-validation on Sleep-EDF-20 (20 subjects, 39 recordings), single
-channel Fpz-Cz at 100 Hz. Wake trimmed to 30 minutes either side of each night's sleep period.
-Checkpoints selected on validation kappa, early stopping with patience 8.
+Subject-wise 5-fold cross-validation on Sleep-EDF (PhysioNet sleep-cassette), single channel
+Fpz-Cz at 100 Hz, five classes. Wake trimmed to 30 minutes either side of each night's sleep
+period. Checkpoints selected on validation kappa, early stopping with patience 8.
+
+Two dataset sizes are reported: Sleep-EDF-20 (20 subjects, 39 recordings) and Sleep-EDF-78
+(78 subjects, 153 recordings, 1,629 hours).
 
 ## Headline
 
-Best causal configuration is run B (120 s context).
-
-| Metric | Value |
-|---|---|
-| Accuracy | 74.4% |
-| Cohen's kappa | 0.662 |
-| Macro F1 | 0.688 |
-| Accuracy at 30 s granularity | 76.1% |
-| Kappa at 30 s granularity | 0.684 |
-| Parameters | 30,757 |
-| CPU inference | 0.026 ms per second of EEG (Intel Core i9-14900HX) |
-
-Measured latency, Intel Core i9-14900HX, 200 runs each:
-
-| Configuration | ms per 1 s of EEG | Margin vs 3 ms/s target |
+| Metric | Sleep-EDF-20 | Sleep-EDF-78 |
 |---|---|---|
-| 60 s context, 3 TCN blocks | 0.045 | 67x |
-| 120 s context, 3 TCN blocks (run B) | 0.026 | 114x |
-| 120 s context, 4 TCN blocks (run C) | 0.074 | 41x |
+| Accuracy | 0.744 | 0.723 |
+| Cohen's kappa | 0.662 | 0.634 |
+| Macro F1 | 0.688 | 0.662 |
+| N1 F1 | 0.336 | 0.398 |
+| Kappa at 30 s | 0.684 | 0.652 |
+| Fold-to-fold kappa sd | 0.092 | 0.030 |
+| Parameters | 30,757 | 30,757 |
+| CPU inference | 0.026 ms/s | 0.026 ms/s |
 
-Per-second latency falls as the context window grows, because fixed per-call overhead is
-amortised over more output steps.
-
-## Per fold, run B
-
-| Fold | Test subjects | Accuracy | Kappa | Macro F1 | W | N1 | N2 | N3 | REM |
-|---|---|---|---|---|---|---|---|---|---|
-| 0 | 19, 05, 14, 04 | 0.7657 | 0.6854 | 0.7213 | 0.801 | 0.384 | 0.846 | 0.831 | 0.745 |
-| 1 | 09, 13, 15, 18 | 0.7980 | 0.7343 | 0.7317 | 0.910 | 0.323 | 0.820 | 0.874 | 0.731 |
-| 2 | 06, 12, 17, 10 | 0.6971 | 0.6010 | 0.6401 | 0.681 | 0.303 | 0.784 | 0.682 | 0.750 |
-| 3 | 01, 11, 02, 16 | 0.6440 | 0.5363 | 0.5999 | 0.745 | 0.309 | 0.663 | 0.604 | 0.678 |
-| 4 | 07, 08, 00, 03 | 0.8133 | 0.7553 | 0.7464 | 0.896 | 0.362 | 0.841 | 0.864 | 0.770 |
-| Mean | | 0.7436 | 0.6625 | 0.6879 | 0.807 | 0.336 | 0.791 | 0.771 | 0.735 |
-
-Per-class columns are F1 scores.
-
-## Configuration ablation
-
-| Run | Configuration | Accuracy | Kappa | Macro F1 | N1 F1 | kappa sd |
-|---|---|---|---|---|---|---|
-| A | 60 s context, 3 TCN blocks | 0.7297 | 0.6433 | 0.6713 | 0.324 | 0.089 |
-| B | 120 s context, 3 TCN blocks | 0.7436 | 0.6625 | 0.6879 | 0.336 | 0.092 |
-| C | 120 s context, 4 TCN blocks | 0.7405 | 0.6575 | 0.6851 | 0.348 | 0.085 |
-
-Doubling the context window from 60 s to 120 s improved kappa by +0.0191.
-Adding a fourth dilated block changed kappa by -0.0049, well within fold
-variance, so the extra depth is not justified by these results.
+Kappa is lower on the larger set, which is expected: Sleep-EDF-78 spans ages 25 to 101 and is
+a harder, more representative population. Published models show the same direction (AttnSleep
+reports 84.4% on Sleep-EDF-20 and 81.6% on Sleep-EDF-78).
 
 ## Cost of causality
 
-Run C and run D are the same model: 37,093 parameters, identical layers, channels, data and
-folds. The only difference is that D pads convolutions symmetrically and drops the attention
-mask, so it can see future signal.
+The causal and non-causal models are identical in every respect except that the non-causal
+variant pads convolutions symmetrically and drops the attention mask, so it can see future
+signal. Same parameters, same data, same folds.
 
-| Metric | Causal (C) | Non-causal (D) | Difference |
-|---|---|---|---|
-| Accuracy | 0.7405 | 0.7693 | -0.0287 |
-| Kappa | 0.6575 | 0.6948 | -0.0373 |
-| Macro F1 | 0.6851 | 0.7120 | -0.0269 |
-| N1 F1 | 0.3480 | 0.3562 | -0.0081 |
-| Accuracy at 30 s | 0.7577 | 0.7718 | -0.0141 |
-| Kappa at 30 s | 0.6794 | 0.6980 | -0.0186 |
+| Subjects | Causal | Non-causal | Difference | t(4) | p | Folds causal loses |
+|---|---|---|---|---|---|---|
+| 20 | 0.6625 | 0.6482 | +0.0143 | 1.26 | 0.276 | 2/5 |
+| 78 | 0.6335 | 0.6570 | -0.0235 | -4.24 | 0.013 | 5/5 |
 
-Fold by fold, kappa:
+Per-fold kappa difference (causal minus non-causal):
 
-| Fold | Causal | Non-causal | Difference |
-|---|---|---|---|
-| 0 | 0.7056 | 0.7451 | -0.0395 |
-| 1 | 0.7283 | 0.7622 | -0.0339 |
-| 2 | 0.5424 | 0.6592 | -0.1168 |
-| 3 | 0.5920 | 0.5436 | +0.0484 |
-| 4 | 0.7193 | 0.7641 | -0.0448 |
-| Mean | 0.6575 | 0.6948 | -0.0373 |
+| Fold | 20 subjects | 78 subjects |
+|---|---|---|
+| 0 | -0.0050 | -0.0219 |
+| 1 | +0.0476 | -0.0042 |
+| 2 | -0.0112 | -0.0299 |
+| 3 | +0.0063 | -0.0240 |
+| 4 | +0.0338 | -0.0377 |
 
-The causal model is worse in 4 of 5 folds and better in 1. A paired t-test over the five folds
-gives t(4) = -1.42, p = 0.228, so at 20 subjects the penalty for causality cannot be
-distinguished from zero. The point estimate is 0.037 kappa, falling to
-0.019 when predictions are aggregated to 30 s epochs.
-Resolving whether the penalty is real needs more subjects; Sleep-EDF-78 is the obvious step.
+At 78 subjects the causal model is worse in all five folds and the difference is significant
+(p = 0.013). Removing the causal constraint buys 0.024 kappa.
+
+At 20 subjects the same comparison was not significant and the sign was unstable: this
+configuration gave +0.0143 while a four-block variant gave -0.0373. Fold variance at 20 subjects (sd 0.092) is three times larger than at 78 (sd 0.030),
+which is enough to swamp an effect this size. Studies measuring causality penalties on 20
+subjects should be treated with caution.
+
+## Per fold, Sleep-EDF-78 causal
+
+| Fold | Accuracy | Kappa | Macro F1 | W | N1 | N2 | N3 | REM |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 0.7094 | 0.6144 | 0.6386 | 0.913 | 0.419 | 0.692 | 0.504 | 0.665 |
+| 1 | 0.7283 | 0.6366 | 0.6721 | 0.883 | 0.413 | 0.762 | 0.674 | 0.628 |
+| 2 | 0.7132 | 0.6250 | 0.6579 | 0.882 | 0.385 | 0.710 | 0.622 | 0.691 |
+| 3 | 0.7662 | 0.6830 | 0.6876 | 0.914 | 0.389 | 0.763 | 0.669 | 0.703 |
+| 4 | 0.6961 | 0.6085 | 0.6520 | 0.887 | 0.384 | 0.664 | 0.605 | 0.719 |
+| Mean | 0.7226 | 0.6335 | 0.6616 | 0.896 | 0.398 | 0.718 | 0.615 | 0.681 |
+
+## Configuration ablation, Sleep-EDF-20
+
+| Run | Configuration | Accuracy | Kappa | Macro F1 | N1 F1 |
+|---|---|---|---|---|---|
+| A | 60 s context, 3 TCN blocks | 0.7297 | 0.6433 | 0.6713 | 0.324 |
+| B | 120 s context, 3 TCN blocks | 0.7436 | 0.6625 | 0.6879 | 0.336 |
+| C | 120 s context, 4 TCN blocks | 0.7405 | 0.6575 | 0.6851 | 0.348 |
+
+Doubling context from 60 s to 120 s improved kappa by +0.0191. A fourth
+dilated block changed it by -0.0049, within fold variance, so three blocks are used.
 
 ## Preprocessing ablation
-
-An earlier configuration kept the full recordings and stacked a weighted sampler on top of the
-focal loss. Untrimmed, Wake is 68% of the data and dominates accuracy; the doubled imbalance
-correction also pushed N1 precision to 0.12-0.20, meaning the model labelled large amounts of
-Wake and N2 as N1.
 
 | Metric | Untrimmed, sampler on | Trimmed, sampler off | Change |
 |---|---|---|---|
@@ -104,47 +88,54 @@ Wake and N2 as N1.
 | REM F1 | 0.5898 | 0.6784 | +0.0886 |
 | Wake F1 | 0.9296 | 0.8010 | -0.1286 |
 
-Every sleep stage improved. Accuracy and Wake F1 fell because the easy Wake majority that had
-been carrying them was removed. Accuracy on untrimmed data should not be compared against
-published Sleep-EDF results, which are all reported on trimmed recordings.
+Untrimmed, Wake is 68% of the data and inflates accuracy. Stacking a weighted sampler on top
+of focal loss also pushed N1 precision to 0.12-0.20. Every sleep stage improved after both were
+corrected; accuracy fell because the easy Wake majority carrying it was removed.
 
 ## Comparison with published baselines
 
-| Model | Accuracy | Kappa | Params | Causal | Output rate |
-|---|---|---|---|---|---|
-| AttnSleep | 84.4% | 0.79 | ~48K | no | 30 s |
-| DeepSleepNet | 82.2% | 0.754 | ~22M | no (Bi-LSTM) | 30 s |
-| CareSleepNet | 78.1% | 0.694 | 22.7M | no (Transformer) | 30 s |
-| This work (run B) | 74.4% | 0.662 | 30.7K | yes | 1 s |
-| This work, 30 s aggregated | 76.1% | 0.684 | 30.7K | yes | 30 s |
+| Model | Dataset | Accuracy | Kappa | Params | Causal | Output rate |
+|---|---|---|---|---|---|---|
+| AttnSleep | Sleep-EDF-20 | 84.4% | 0.79 | ~48K | no | 30 s |
+| DeepSleepNet | Sleep-EDF-20 | 82.2% | 0.754 | ~22M | no (Bi-LSTM) | 30 s |
+| CareSleepNet | Sleep-EDF | 78.1% | 0.694 | 22.7M | no (Transformer) | 30 s |
+| This work | Sleep-EDF-20 | 74.4% | 0.662 | 30.7K | yes | 1 s |
+| This work | Sleep-EDF-78 | 72.3% | 0.634 | 30.7K | yes | 1 s |
+| This work, non-causal | Sleep-EDF-78 | 74.0% | 0.657 | 30.7K | no | 1 s |
 
-All three baselines use future signal, through a bidirectional LSTM or attention across the full
-sequence, so none can run in real time. The 30 s aggregated row is the closest like-for-like
-comparison. N1 F1 of 0.336 is close to AttnSleep's 0.36 and above CareSleepNet's 0.32.
+Every baseline uses future signal and cannot run in real time. The final row is our own model
+with the causal constraint removed, which isolates how much of the gap to published work is
+attributable to causality (0.024 kappa) rather than to model size or design.
+
+N1 F1 on Sleep-EDF-78 is 0.398, above AttnSleep's 0.36 and CareSleepNet's 0.32.
+
+## Latency
+
+Intel Core i9-14900HX, 200 runs each.
+
+| Configuration | ms per 1 s of EEG | Margin vs 3 ms/s target |
+|---|---|---|
+| 60 s context, 3 TCN blocks | 0.045 | 67x |
+| 120 s context, 3 TCN blocks | 0.026 | 114x |
+| 120 s context, 4 TCN blocks | 0.074 | 41x |
 
 ## Limitations
 
-- Single dataset and single channel. Fold variance is large: kappa spans
-  0.536 to 0.755 in run B.
+- Single channel (Fpz-Cz) and a single dataset family.
 - Supervision is 30 s labels replicated to 1 Hz, not genuine per-second scoring.
-- The causality comparison is underpowered at five folds (p = 0.23).
-- Validation peaks early; early stopping typically fires between epochs 10 and 20.
+- Five folds; the causality effect is significant at 78 subjects but rests on five paired values.
 
 ## Artifacts
 
-- `results/run_a_baseline/` 60 s context
-- `results/run_b_context/` 120 s context, best causal result
-- `results/run_c_depth/` 120 s context with a 4th TCN block
-- `results/run_d_noncausal/` causality ablation
-- `results/trimmed/` and `results/baseline_untrimmed/` preprocessing ablation
-
-Each directory holds its summary, per-fold reports, per-epoch curves and training log.
+- `results/sleep78_causal/`, `results/sleep78_noncausal/` main result and causality ablation
+- `results/run_a_baseline/`, `run_b_context/`, `run_c_depth/` configuration ablation, 20 subjects
+- `results/run_d_noncausal/`, `run_d2_noncausal/` causality ablation, 20 subjects
+- `results/trimmed/`, `results/baseline_untrimmed/` preprocessing ablation
 
 ## Reproducing
 
 ```bash
-python -m src.data.preprocessing --all
-python -m src.train.train --config configs/run_b_context.yaml --fold -1
-python -m src.eval.evaluate --config configs/run_b_context.yaml --fold 0   # repeat 0-4
-python -m src.eval.evaluate --config configs/run_b_context.yaml --benchmark
+python -m src.data.preprocessing --all --processed_dir data/processed78
+python -m src.train.train --config configs/sleep78_causal.yaml --fold -1
+python -m src.eval.evaluate --config configs/sleep78_causal.yaml --fold 0   # repeat 0-4
 ```
