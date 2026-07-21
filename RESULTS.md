@@ -17,12 +17,45 @@ Two dataset sizes are reported: Sleep-EDF-20 (20 subjects, 39 recordings) and Sl
 | N1 F1 | 0.336 | 0.398 |
 | Kappa at 30 s | 0.684 | 0.652 |
 | Fold-to-fold kappa sd | 0.092 | 0.030 |
+| Kappa with 30 s causal smoothing | | 0.642 |
+| Stage changes per hour, raw / smoothed / human | | 181 / 26 / 13 |
 | Parameters | 30,757 | 30,757 |
 | CPU inference | 0.026 ms/s | 0.026 ms/s |
 
 Kappa is lower on the larger set, which is expected: Sleep-EDF-78 spans ages 25 to 101 and is
 a harder, more representative population. Published models show the same direction (AttnSleep
 reports 84.4% on Sleep-EDF-20 and 81.6% on Sleep-EDF-78).
+
+## Temporal stability and causal smoothing
+
+The model labels every second independently, so its raw output is far more fragmented than a
+scored hypnogram. On the Sleep-EDF-78 held-out recordings it changes stage **181 times an hour**
+against **13 times an hour** for the technician, a 14-fold difference.
+
+A trailing-window mode filter fixes most of this. The label at second t becomes the most common
+prediction over [t-w+1, t], so only past predictions are used and the causal property holds.
+
+| Window (s) | Accuracy | Kappa | Macro F1 | N1 F1 | Stage changes/hour |
+|---|---|---|---|---|---|
+| 1 (raw) | 0.7227 | 0.6335 | 0.6616 | 0.398 | 181 |
+| 5 | 0.7252 | 0.6367 | 0.6641 | 0.399 | 72 |
+| 10 | 0.7277 | 0.6399 | 0.6667 | 0.401 | 56 |
+| 15 | 0.7283 | 0.6405 | 0.6672 | 0.399 | 37 |
+| **30** | **0.7300** | **0.6424** | **0.6687** | 0.397 | 26 |
+| 45 | 0.7297 | 0.6418 | 0.6680 | 0.392 | 19 |
+| 60 | 0.7292 | 0.6410 | 0.6672 | 0.387 | 16 |
+| 90 | 0.7275 | 0.6384 | 0.6649 | 0.376 | 12 |
+| 120 | 0.7258 | 0.6360 | 0.6627 | 0.369 | 10 |
+
+A 30 s window is best for kappa (+0.0089) and cuts fragmentation sevenfold. A 45 s window
+brings output stability to 19 changes an hour, close to the human rate, at a negligible cost.
+
+N1 F1 peaks earlier, around a 10 s window, and falls as smoothing grows: N1 bouts are short and
+heavy smoothing absorbs them into neighbouring stages. The best window therefore depends on
+whether overall agreement or transitional-stage sensitivity matters more.
+
+Smoothing is applied at inference only, needs no retraining, adds no parameters and preserves
+causality. It recovers roughly 38% of the accuracy given up by the causal constraint.
 
 ## Cost of causality
 

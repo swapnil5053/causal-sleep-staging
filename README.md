@@ -24,8 +24,14 @@ Subject-wise 5-fold cross-validation on Sleep-EDF, single channel Fpz-Cz at 100 
 | N1 F1 | 0.336 | 0.398 |
 | Kappa at 30 s granularity | 0.684 | 0.652 |
 | Fold-to-fold kappa sd | 0.092 | 0.030 |
+| Kappa with 30 s causal smoothing | | 0.642 |
 | Parameters | 30,757 | 30,757 |
 | CPU inference | 0.026 ms/s | 0.026 ms/s |
+
+Predicting every second independently makes the raw output far more fragmented than a scored
+hypnogram: 181 stage changes an hour against 13 for the technician. A trailing-window mode
+filter, which uses only past predictions and so stays causal, cuts that to 26 an hour and adds
+0.009 kappa at no training cost. See [RESULTS.md](RESULTS.md).
 
 ### What causality costs
 
