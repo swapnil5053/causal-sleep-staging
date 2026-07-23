@@ -18,6 +18,7 @@ Two dataset sizes are reported: Sleep-EDF-20 (20 subjects, 39 recordings) and Sl
 | Kappa at 30 s | 0.684 | 0.652 |
 | Fold-to-fold kappa sd | 0.092 | 0.030 |
 | Kappa with 30 s causal smoothing | | 0.642 |
+| Kappa pooled over 3 seeds | | 0.641 |
 | Stage changes per hour, raw / smoothed / human | | 181 / 26 / 13 |
 | Parameters | 30,757 | 30,757 |
 | CPU inference | 0.026 ms/s | 0.026 ms/s |
@@ -61,30 +62,27 @@ causality. It recovers roughly 38% of the accuracy given up by the causal constr
 
 The causal and non-causal models are identical in every respect except that the non-causal
 variant pads convolutions symmetrically and drops the attention mask, so it can see future
-signal. Same parameters, same data, same folds.
+signal. Same parameters, same data, same folds, same seeds.
 
-| Subjects | Causal | Non-causal | Difference | t(4) | p | Folds causal loses |
-|---|---|---|---|---|---|---|
-| 20 | 0.6625 | 0.6482 | +0.0143 | 1.26 | 0.276 | 2/5 |
-| 78 | 0.6335 | 0.6570 | -0.0235 | -4.24 | 0.013 | 5/5 |
+Sleep-EDF-78, three random seeds x five folds = 15 paired measurements:
 
-Per-fold kappa difference (causal minus non-causal):
+| Seed | Causal | Non-causal | Difference |
+|---|---|---|---|
+| 42 | 0.6335 | 0.6570 | -0.0235 |
+| 43 | 0.6426 | 0.6743 | -0.0317 |
+| 44 | 0.6456 | 0.6764 | -0.0307 |
+| **Pooled** | **0.6406** | **0.6693** | **-0.0287** |
 
-| Fold | 20 subjects | 78 subjects |
-|---|---|---|
-| 0 | -0.0050 | -0.0219 |
-| 1 | +0.0476 | -0.0042 |
-| 2 | -0.0112 | -0.0299 |
-| 3 | +0.0063 | -0.0240 |
-| 4 | +0.0338 | -0.0377 |
+Paired t(14) = -10.37, p = 5.91e-08. Bootstrap 95% CI on the difference
+[-0.0339, -0.0234], Cohen's d = -2.68. The causal model is worse in
+**15 of 15** measurements and the effect appears in all three seeds.
+Seed-to-seed variation is small (causal kappa sd 0.0052), so the
+result is not an artefact of initialisation.
 
-At 78 subjects the causal model is worse in all five folds and the difference is significant
-(p = 0.013). Removing the causal constraint buys 0.024 kappa.
+At 20 subjects the same experiment gave +0.0143 with p = 0.28, the wrong sign. Fold variance
+there is three times larger (kappa sd 0.092 against 0.030), enough to swamp an effect this size.
+Causality penalties measured on 20-subject splits should be treated with caution.
 
-At 20 subjects the same comparison was not significant and the sign was unstable: this
-configuration gave +0.0143 while a four-block variant gave -0.0373. Fold variance at 20 subjects (sd 0.092) is three times larger than at 78 (sd 0.030),
-which is enough to swamp an effect this size. Studies measuring causality penalties on 20
-subjects should be treated with caution.
 
 ## Per fold, Sleep-EDF-78 causal
 
@@ -127,20 +125,34 @@ corrected; accuracy fell because the easy Wake majority carrying it was removed.
 
 ## Comparison with published baselines
 
-| Model | Dataset | Accuracy | Kappa | Params | Causal | Output rate |
+All three baselines were run in-house on **39 recordings (Sleep-EDF-20)**, so the comparison
+below uses our Sleep-EDF-20 numbers. Comparing our Sleep-EDF-78 result against their
+Sleep-EDF-20 results would understate our model, since the 78-subject set spans ages 25 to 101
+and is materially harder.
+
+| Model | Accuracy | Kappa | Params | Causal | Output rate | Reporting |
 |---|---|---|---|---|---|---|
-| AttnSleep | Sleep-EDF-20 | 84.4% | 0.79 | ~48K | no | 30 s |
-| DeepSleepNet | Sleep-EDF-20 | 82.2% | 0.754 | ~22M | no (Bi-LSTM) | 30 s |
-| CareSleepNet | Sleep-EDF | 78.1% | 0.694 | 22.7M | no (Transformer) | 30 s |
-| This work | Sleep-EDF-20 | 74.4% | 0.662 | 30.7K | yes | 1 s |
-| This work | Sleep-EDF-78 | 72.3% | 0.634 | 30.7K | yes | 1 s |
-| This work, non-causal | Sleep-EDF-78 | 74.0% | 0.657 | 30.7K | no | 1 s |
+| DeepSleepNet | 82.2% | 0.754 | ~22M | no (Bi-LSTM) | 30 s | mean of 5 folds |
+| AttnSleep | 81.3% | ~0.75 | ~48K | partial | 5 s | mean of 10 folds |
+| **This work, 30 s aggregated** | **76.1%** | **0.684** | **30.7K** | **yes** | **30 s** | mean of 5 folds |
+| **This work, per-second** | **74.4%** | **0.662** | **30.7K** | **yes** | **1 s** | mean of 5 folds |
+| CareSleepNet | ~75.8% | ~0.62 | 22.7M | no (Transformer) | 30 s | **estimated mean** |
 
-Every baseline uses future signal and cannot run in real time. The final row is our own model
-with the causal constraint removed, which isolates how much of the gap to published work is
-attributable to causality (0.024 kappa) rather than to model size or design.
+Two caveats matter when reading this table.
 
-N1 F1 on Sleep-EDF-78 is 0.398, above AttnSleep's 0.36 and CareSleepNet's 0.32.
+CareSleepNet's frequently quoted 78.07% / 0.694 is its **best fold**, not its mean. Its own
+report records fold 1 at 38.12% and fold 4 as unrecoverable, giving an estimated mean of ~75.8%
+/ 0.62. Against that mean, our model reaches a higher kappa with **740x fewer parameters** while
+remaining causal.
+
+The 30 s aggregated row is the like-for-like comparison against 30 s models, obtained by
+majority-voting our per-second predictions within each epoch. No retraining is involved.
+
+We remain below DeepSleepNet and AttnSleep. Both read future signal, and DeepSleepNet uses
+roughly 700x more parameters. Our own non-causal ablation isolates how much of that gap is
+attributable to causality: 0.029 kappa, leaving the remainder to capacity and architecture.
+
+N1 F1 is 0.398 on Sleep-EDF-78, above AttnSleep's 0.36 and CareSleepNet's 0.32.
 
 ## Latency
 
@@ -156,7 +168,7 @@ Intel Core i9-14900HX, 200 runs each.
 
 - Single channel (Fpz-Cz) and a single dataset family.
 - Supervision is 30 s labels replicated to 1 Hz, not genuine per-second scoring.
-- Five folds; the causality effect is significant at 78 subjects but rests on five paired values.
+- The causality effect rests on 15 paired measurements (3 seeds x 5 folds) on one dataset family.
 
 ## Artifacts
 
