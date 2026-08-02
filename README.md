@@ -75,6 +75,8 @@ difference, which makes the causal/non-causal comparison a controlled one.
 ## Setup
 
 Python 3.10+. A CUDA GPU is not required but training takes hours on CPU.
+For exact experiment-to-config mappings and a complete run checklist, see
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md).
 
 ```bash
 python -m venv venv
