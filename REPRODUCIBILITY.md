@@ -9,6 +9,25 @@ from the repository root. Raw Sleep-EDF data is not distributed with this reposi
 > reproducing the archived numbers exactly. A new end-to-end causal study should introduce a
 > past-only normalization strategy and retrain all compared models.
 
+### End-to-end causal preprocessing pilot
+
+New experiments should use the isolated streaming configurations rather than overwrite the
+archived epoch-normalized data. They apply a trailing 30-second z-score at every raw sample;
+the statistic at time `t` contains only samples at or before `t` and resets at each recording.
+
+```bash
+python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
+python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold 0
+python -m src.train.train --config configs/sleep78_streaming_noncausal.yaml --fold 0
+```
+
+Both pilot arms read `data/processed78_streaming`, but write to separate log and checkpoint
+directories. Run fold 0 first as a go/no-go check. If performance remains viable, run folds 0-4
+for seed 42, then copy both configurations for seeds 43 and 44 with distinct log/checkpoint
+directories. Do not describe the pipeline as end-to-end causal until the new causal checkpoints
+have been evaluated and the future-perturbation test passes for the complete preprocessing-model
+path.
+
 ## 1. Environment
 
 Python 3.10 or newer is required. Create an isolated environment and install the pinned minimum

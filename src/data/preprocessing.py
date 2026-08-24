@@ -6,6 +6,8 @@ import yaml
 import numpy as np
 import mne
 
+from src.data.normalization import normalize_signal
+
 def get_config(config_path="configs/default.yaml"):
     """Load config file."""
     with open(config_path, "r") as f:
@@ -35,10 +37,11 @@ def find_eeg_channel(channel_names, target="EEG Fpz-Cz"):
     raise ValueError(f"Could not find EEG channel matching target '{target}' in channels: {channel_names}")
 
 def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_rate=100,
-                    wake_trim_minutes=30):
+                    wake_trim_minutes=30, normalization_method="causal_rolling",
+                    normalization_window_seconds=30, normalization_eps=1e-8):
     """
     Load raw PSG and Hypnogram, extract target channel, resample,
-    perform Z-score normalization per 30-second epoch, and segment into 1-second windows.
+    perform streaming-safe normalization, and segment into 1-second windows.
 
     Args:
         psg_path (str): Path to PSG.edf file.
@@ -50,6 +53,9 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
             recording is the subject awake and out of bed; keeping all of it makes Wake
             ~68% of the data and inflates accuracy. Standard protocol (DeepSleepNet,
             AttnSleep, TinySleepNet) keeps 30 min either side. Set to None to keep everything.
+        normalization_method (str): ``causal_rolling`` (recommended) or ``none``.
+        normalization_window_seconds (float): Trailing window used by causal normalization.
+        normalization_eps (float): Minimum usable rolling standard deviation.
 
     Returns:
         tuple: (signal_windows, labels)
@@ -81,6 +87,22 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     total_duration = n_samples / resample_rate
     
     print(f"Total duration: {total_duration:.1f} seconds ({n_samples} samples)")
+
+    normalized_data = None
+    if normalization_method == "epoch_zscore":
+        print("Normalization: legacy full-epoch z-score (not end-to-end causal)")
+    else:
+        normalization_window_samples = int(round(normalization_window_seconds * resample_rate))
+        normalized_data = normalize_signal(
+            raw_data[0],
+            method=normalization_method,
+            window_samples=normalization_window_samples,
+            eps=normalization_eps,
+        )
+        print(
+            f"Normalization: {normalization_method} "
+            f"(trailing window {normalization_window_seconds:g} s, resets per recording)"
+        )
     
     # Map sleep stages per second
     second_labels = np.full(int(total_duration), -1, dtype=int)
@@ -147,14 +169,15 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         start_sample = start_sec * resample_rate
         end_sample = end_sec * resample_rate
         
-        epoch_signal = raw_data[0, start_sample:end_sample]
-        
-        # Z-score normalization per 30-second epoch
-        mean = np.mean(epoch_signal)
-        std = np.std(epoch_signal)
-        if std == 0:
-            std = 1e-8
-        normalized_epoch = (epoch_signal - mean) / std
+        if normalization_method == "epoch_zscore":
+            epoch_signal = raw_data[0, start_sample:end_sample]
+            mean = np.mean(epoch_signal)
+            std = np.std(epoch_signal)
+            if std < normalization_eps:
+                std = normalization_eps
+            normalized_epoch = (epoch_signal - mean) / std
+        else:
+            normalized_epoch = normalized_data[start_sample:end_sample]
         
         # Reshape to 30 1-second windows (each of size 100 samples)
         # shape: (30, 100)
@@ -191,6 +214,11 @@ def main():
     target_channel = config['data']['target_channel']
     resample_rate = config['data']['resample_rate']
     wake_trim_minutes = config['data'].get('wake_trim_minutes', 30)
+    # Configs predating streaming normalization intentionally retain the archived behavior.
+    normalization = config['data'].get('normalization', {'method': 'epoch_zscore'})
+    normalization_method = normalization.get('method', 'causal_rolling')
+    normalization_window_seconds = normalization.get('window_seconds', 30)
+    normalization_eps = normalization.get('eps', 1e-8)
     
     os.makedirs(processed_dir, exist_ok=True)
     
@@ -257,7 +285,10 @@ def main():
         for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
             try:
                 x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate,
-                                       wake_trim_minutes=wake_trim_minutes)
+                                       wake_trim_minutes=wake_trim_minutes,
+                                       normalization_method=normalization_method,
+                                       normalization_window_seconds=normalization_window_seconds,
+                                       normalization_eps=normalization_eps)
                 xs.append(x)
                 ys.append(y)
             except Exception as e:
@@ -272,7 +303,14 @@ def main():
         x = np.concatenate(xs, axis=0)  # (total_seconds, 100)
         y = np.concatenate(ys, axis=0)  # (total_seconds,)
         out_path = os.path.join(processed_dir, f"subject_{sub_id}.npz")
-        np.savez_compressed(out_path, x=x, y=y)
+        np.savez_compressed(
+            out_path,
+            x=x,
+            y=y,
+            normalization_method=np.array(normalization_method),
+            normalization_window_seconds=np.array(normalization_window_seconds),
+            normalization_eps=np.array(normalization_eps),
+        )
         print(f"Successfully saved subject {sub_id} ({len(x)} seconds from {len(xs)} night(s)) to {out_path}")
 
 if __name__ == "__main__":
