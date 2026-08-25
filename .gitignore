@@ -60,3 +60,12 @@ CONSISTENCY_NOTES.md
 # Ablation run outputs
 logs_run*/
 checkpoints_run*/
+
+# Every other generated data / log / checkpoint directory (78-subject, streaming, ablations).
+# Curated copies are committed from results/ instead.
+data/raw*/
+data/processed*/
+logs_*/
+checkpoints_*/
+*_run.log
+overnight_run.log

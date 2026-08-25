@@ -4,6 +4,21 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, WeightedRandomSampler
 
+def describe_normalization(npz):
+    """Return a short identifier for how a processed .npz was normalized.
+
+    Files written before the streaming pipeline existed carry no metadata; they are
+    reported as ``epoch_zscore (legacy, no metadata)`` so a mixed directory is still
+    detected rather than being read as a match.
+    """
+    if 'normalization_method' not in npz.files:
+        return "epoch_zscore (legacy, no metadata)"
+    method = str(npz['normalization_method'])
+    if method == "causal_rolling" and 'normalization_window_seconds' in npz.files:
+        return f"causal_rolling@{float(npz['normalization_window_seconds']):g}s"
+    return method
+
+
 class SleepDataset(Dataset):
     """
     PyTorch Dataset that loads processed subject .npz files and yields
@@ -21,17 +36,33 @@ class SleepDataset(Dataset):
         
         self.windows = []
         self.labels = []
-        
+        self.normalization_method = None
+
         # Load and segment data subject-by-subject
         for sub_id in subject_ids:
             file_path = os.path.join(processed_dir, f"subject_{sub_id}.npz")
             if not os.path.exists(file_path):
                 print(f"Warning: Processed file for subject {sub_id} not found at {file_path}. Skipping.")
                 continue
-                
+
             data = np.load(file_path)
             x, y = data['x'], data['y'] # x: (N_seconds, 100), y: (N_seconds,)
-            
+
+            # Refuse to silently mix preprocessing regimes inside one directory: a run that
+            # blends causal and epoch-normalized subjects would be unreportable, and the
+            # failure is otherwise invisible. Files written before normalization metadata
+            # existed are treated as the legacy epoch z-score.
+            method = describe_normalization(data)
+            if self.normalization_method is None:
+                self.normalization_method = method
+            elif method != self.normalization_method:
+                raise ValueError(
+                    f"Inconsistent preprocessing in {processed_dir}: subject {sub_id} was "
+                    f"normalized with '{method}' but earlier subjects used "
+                    f"'{self.normalization_method}'. Re-run preprocessing into a clean "
+                    f"directory before training."
+                )
+
             # Extract sliding windows
             num_seconds = len(x)
             if num_seconds < seq_len:
@@ -47,7 +78,8 @@ class SleepDataset(Dataset):
         if len(self.windows) > 0:
             self.windows = np.array(self.windows, dtype=np.float32) # (N_windows, L, 100)
             self.labels = np.array(self.labels, dtype=np.int64)     # (N_windows, L)
-            print(f"Dataset initialized with {len(self.windows)} windows from {len(subject_ids)} subjects.")
+            print(f"Dataset initialized with {len(self.windows)} windows from {len(subject_ids)} "
+                  f"subjects (normalization: {self.normalization_method}).")
         else:
             self.windows = np.empty((0, seq_len, 100), dtype=np.float32)
             self.labels = np.empty((0, seq_len), dtype=np.int64)
