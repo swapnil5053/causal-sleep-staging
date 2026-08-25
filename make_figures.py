@@ -80,8 +80,11 @@ def figure_ablation(out_dir):
         ("120 s +4blk\n20 subj", "results/run_c_depth"),
         ("120 s\n78 subj", "results/sleep78_causal"),
         ("120 s non-causal\n78 subj", "results/sleep78_noncausal"),
+        # end-to-end causal preprocessing pilot; skipped automatically until archived
+        ("streaming norm\n78 subj", "results/sleep78_streaming_causal"),
+        ("streaming norm\nnon-causal", "results/sleep78_streaming_noncausal"),
     ]
-    labels, means, folds = [], [], []
+    labels, means, folds, noncausal = [], [], [], []
     for label, d in runs:
         p = None
         for fn in ("test_metrics_summary.csv", "summary.csv"):
@@ -94,12 +97,14 @@ def figure_ablation(out_dir):
         labels.append(label)
         means.append(np.mean(k))
         folds.append(k)
+        noncausal.append("noncausal" in d)
     if not labels:
         print("  skip ablation: no run summaries found")
         return
 
     fig, ax = plt.subplots(figsize=(7.2, 4.2))
-    colours = ["#7f9fc4"] * (len(labels) - 1) + ["#c47f7f"]
+    # blue = causal (the deployable model), red = non-causal ablation
+    colours = ["#c47f7f" if nc else "#7f9fc4" for nc in noncausal]
     bars = ax.bar(labels, means, color=colours, edgecolor="black", linewidth=0.6)
     for i, k in enumerate(folds):
         ax.scatter([i] * len(k), k, color="black", zorder=3, s=18, alpha=0.75)
@@ -107,7 +112,7 @@ def figure_ablation(out_dir):
         ax.text(b.get_x() + b.get_width() / 2, max(k) + 0.018, f"{mu:.3f}",
                 ha="center", fontsize=9, fontweight="bold")
     ax.set_ylabel("Cohen's kappa")
-    ax.set_ylim(0, max(max(f) for f in folds) * 1.18)
+    ax.set_ylim(0, max(max(max(f) for f in folds) * 1.18, 0.05))  # stay valid if a run collapsed
     ax.set_title("Cross-validated kappa by configuration\n(black points are individual folds)")
     ax.grid(axis="y", alpha=0.3)
     ax.set_axisbelow(True)
