@@ -46,13 +46,17 @@ The same model with the causal constraint removed, holding parameters, data and 
 | Subjects | Normalization | Causal | Non-causal | Difference | p | Folds causal loses |
 |---|---|---|---|---|---|---|
 | 20 | epoch z-score | 0.6625 | 0.6482 | +0.014 | 0.276 | 2 of 5 |
-| 78 | epoch z-score | 0.6335 | 0.6570 | -0.024 | 0.013 | 5 of 5 |
-| 78 | causal rolling | 0.6634 | 0.6912 | **-0.028** | **0.008** | **5 of 5** |
+| 78 | epoch z-score | 0.6406 | 0.6693 | -0.029 | 5.9e-08 | 15 of 15 |
+| 78 | causal rolling | 0.6649 | 0.6898 | **-0.025** | **3.8e-06** | **14 of 15** |
+
+Both 78-subject rows pool three seeds over five folds (15 paired measurements each); the
+20-subject row is a single seed.
 
 On 78 subjects, giving the model access to future signal improves kappa by roughly 0.03,
 consistently across every fold. That is the measurable price of running in real time, and it
-holds under both normalization regimes: -0.024 with epoch z-scoring (pooled over three seeds)
-and -0.028 with the fully causal pipeline (paired t(4) = -4.90, p = 0.008).
+holds under both normalization regimes, each measured over three seeds and five folds: -0.029
+with epoch z-scoring and -0.025 with the fully causal pipeline (paired t(14) = -7.33,
+p = 3.8e-06, 95% CI [-0.031, -0.018]). The causal model loses in 14 of those 15 measurements.
 
 The same comparison on 20 subjects is not significant and its sign is unstable, because
 fold-to-fold variance there is three times larger (kappa sd 0.092 against 0.030). Causality

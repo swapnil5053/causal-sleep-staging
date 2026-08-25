@@ -50,9 +50,10 @@ before spending the rest of the compute.
 Each fold's checkpoint directory records the subject split, so folds may be run individually or
 with `--fold -1`; training re-seeds per fold, and both give identical results.
 
-Do not describe the pipeline as end-to-end causal in the paper until
-`scripts/verify_causality.py` passes against the trained causal checkpoint, with its report
-archived alongside the run.
+`scripts/verify_causality.py` has been run against the trained causal checkpoint and its report
+is archived at `results/causality_verification.md`. Re-run it after any change to normalization,
+padding or masking, and archive the new report with the run; the end-to-end causal claim rests
+on it.
 
 ### Preprocessing manifest
 
@@ -254,6 +255,20 @@ python analysis_stats.py \
   --out results/statistics_streaming.md
 ```
 
+When the same comparison has been repeated under several seeds, report the pooled paired test
+over all seeds x folds rather than three separate five-fold tests:
+
+```bash
+python scripts/pool_seeds.py \
+  --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
+  --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
+  --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44 \
+  --out results/statistics_streaming_pooled.md
+```
+
+It refuses to run if a summary CSV lists a fold twice or if the two arms cover different folds,
+so a half-finished sweep cannot be reported as a complete one.
+
 Generate figures (requires the processed data and referenced checkpoint for the hypnogram panel):
 
 ```bash
@@ -289,16 +304,16 @@ checkpoints are archived under `results/`.
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_noncausal/` |
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_noncausal_s43/` |
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_noncausal_s44/` |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal.yaml` | 42 | 120 s | yes | pending |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s43.yaml` | 43 | 120 s | yes | pending |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s44.yaml` | 44 | 120 s | yes | pending |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal.yaml` | 42 | 120 s | no | pending |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | 120 s | no | pending |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | 120 s | no | pending |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal.yaml` | 42 | 120 s | yes | `results/sleep78_streaming_causal_s42/` |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s43.yaml` | 43 | 120 s | yes | `results/sleep78_streaming_causal_s43/` |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s44.yaml` | 44 | 120 s | yes | `results/sleep78_streaming_causal_s44/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_streaming_noncausal_s42/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_streaming_noncausal_s43/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_streaming_noncausal_s44/` |
 
-Rows marked *pending* are the end-to-end causal pilot; they use trailing-window normalization
-and `data/processed78_streaming`, and their results directories are created when the runs are
-archived. Every other row uses the archived epoch z-score.
+The streaming rows use trailing-window normalization and `data/processed78_streaming`. Every
+other row uses the epoch z-score and `data/processed78`. The two regimes are never mixed in one
+processed directory.
 
 `configs/sleep78_ctx300.yaml` defines a 300-second causal experiment, but this repository does
 not contain a matching curated result directory. `results/trimmed/` and

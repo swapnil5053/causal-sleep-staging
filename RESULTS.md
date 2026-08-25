@@ -23,7 +23,7 @@ whole path end-to-end causal. The streaming column is the primary result.
 | Kappa at 30 s | 0.684 | 0.652 | **0.683** |
 | Fold-to-fold kappa sd | 0.092 | 0.030 | 0.033 |
 | Kappa with 30 s causal smoothing | | 0.642 | |
-| Kappa pooled over 3 seeds | | 0.641 | |
+| Kappa pooled over 3 seeds | | 0.641 | **0.665** |
 | Stage changes per hour, raw / smoothed / human | | 181 / 26 / 13 | |
 | End-to-end causal preprocessing | no | no | **yes** |
 | Parameters | 30,757 | 30,757 | 30,757 |
@@ -125,7 +125,21 @@ Causality penalties measured on 20-subject splits should be treated with caution
 ### Replication under end-to-end causal preprocessing
 
 Repeating the comparison with trailing-window normalization, so that neither arm's preprocessing
-reads the future, reproduces the effect at the same magnitude:
+reads the future, reproduces the effect at the same magnitude. Three seeds x five folds:
+
+| Seed | Causal | Non-causal | Difference | Causal loses |
+|---|---|---|---|---|
+| 42 | 0.6634 | 0.6912 | -0.0278 | 5/5 |
+| 43 | 0.6649 | 0.6893 | -0.0244 | 5/5 |
+| 44 | 0.6664 | 0.6888 | -0.0224 | 4/5 |
+| **Pooled** | **0.6649** | **0.6898** | **-0.0249** | **14/15** |
+
+Paired t(14) = -7.33, p = 3.75e-06. Bootstrap 95% CI [-0.0310, -0.0183], Cohen's d = -1.89,
+Wilcoxon p = 0.0001. The effect varies little across seeds (sd 0.0028), so it is not an artefact
+of initialisation. Cohen's d is inflated at this sample size; the bootstrap interval is the more
+honest summary.
+
+Per-fold kappa for seed 42 is:
 
 | Fold | Causal | Non-causal | Difference |
 |---|---|---|---|
@@ -134,18 +148,13 @@ reads the future, reproduces the effect at the same magnitude:
 | 2 | 0.6713 | 0.7063 | -0.0350 |
 | 3 | 0.7116 | 0.7444 | -0.0328 |
 | 4 | 0.6661 | 0.6762 | -0.0101 |
-| **Mean** | **0.6634** | **0.6912** | **-0.0278** |
 
-Paired t(4) = -4.90, p = 0.0080. Bootstrap 95% CI [-0.0372, -0.0178], Cohen's d = -2.19, causal
-worse in 5 of 5 folds. The Wilcoxon signed-rank test gives p = 0.0625, which is the smallest
-value attainable at n = 5 when every difference shares a sign, so it is a floor rather than a
-disagreement. Cohen's d is inflated at this sample size; the bootstrap interval is the more
-honest summary.
-
-Measuring -0.0278 here against -0.0287 pooled over three seeds under the earlier normalization
+Measuring -0.0249 here against -0.0287 pooled over three seeds under the earlier normalization
 means the penalty survives a change of preprocessing regime. It is a property of the causal
 constraint, not of one pipeline.
 
+The single fold where the causal model wins (seed 44, one of five) is the only one of 15
+measurements to break the pattern, and its margin is small. Reported here rather than omitted.
 
 ## Per fold, Sleep-EDF-78 causal
 
@@ -232,15 +241,15 @@ Intel Core i9-14900HX, 200 runs each.
 - Single channel (Fpz-Cz) and a single dataset family.
 - Supervision is 30 s labels replicated to 1 Hz, not genuine per-second scoring.
 - The causality effect rests on 15 paired measurements (3 seeds x 5 folds) under epoch
-  normalization, replicated by 5 further paired folds under streaming normalization.
-- The streaming result is a single seed (42). Seeds 43 and 44 have configurations but have not
-  been run.
+  normalization and 15 more under streaming normalization, all on one dataset family.
 
 ## Artifacts
 
 - `results/sleep78_streaming_causal/`, `results/sleep78_streaming_noncausal/` primary result,
   end-to-end causal pipeline
-- `results/statistics_streaming.md` paired test for the streaming comparison
+- `results/sleep78_streaming_causal_s43/`, `_s44/` and their non-causal counterparts, seeds 43-44
+- `results/statistics_streaming.md` paired test for seed 42
+- `results/statistics_streaming_pooled.md` pooled test over all three seeds
 - `results/causality_verification.md` future-perturbation report for the full path
 - `results/sleep78_causal/`, `results/sleep78_noncausal/` earlier epoch-normalized runs
 - `results/run_a_baseline/`, `run_b_context/`, `run_c_depth/` configuration ablation, 20 subjects
