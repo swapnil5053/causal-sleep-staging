@@ -1,0 +1,8 @@
+# Normalise line endings on commit. Windows writes CRLF into the CSV and txt
+# reports; without this every re-run shows the whole file as changed.
+* text=auto eol=lf
+
+*.png binary
+*.pth binary
+*.npz binary
+*.edf binary

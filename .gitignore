@@ -68,4 +68,5 @@ data/processed*/
 logs_*/
 checkpoints_*/
 *_run.log
+run_*.log
 overnight_run.log
