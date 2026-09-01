@@ -160,7 +160,9 @@ def main():
     a("Smoothing is applied at inference only. No retraining is involved and the model is")
     a("unchanged, so this is a free post-processing gain available to any per-second model.\n")
     text = "\n".join(L_) + "\n"
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    out_dir = os.path.dirname(args.out)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     open(args.out, "w").write(text)
     print("\n" + text)
     print(f"written to {args.out}")

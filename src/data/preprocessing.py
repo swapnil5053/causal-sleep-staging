@@ -1,10 +1,17 @@
 import os
 import re
 import glob
+import json
 import argparse
+from datetime import datetime, timezone
+
 import yaml
 import numpy as np
 import mne
+
+from src.data.normalization import normalize_signal
+
+STAGE_NAMES = ["W", "N1", "N2", "N3", "REM"]
 
 def get_config(config_path="configs/default.yaml"):
     """Load config file."""
@@ -35,10 +42,11 @@ def find_eeg_channel(channel_names, target="EEG Fpz-Cz"):
     raise ValueError(f"Could not find EEG channel matching target '{target}' in channels: {channel_names}")
 
 def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_rate=100,
-                    wake_trim_minutes=30):
+                    wake_trim_minutes=30, normalization_method="causal_rolling",
+                    normalization_window_seconds=30, normalization_eps=1e-8):
     """
     Load raw PSG and Hypnogram, extract target channel, resample,
-    perform Z-score normalization per 30-second epoch, and segment into 1-second windows.
+    perform streaming-safe normalization, and segment into 1-second windows.
 
     Args:
         psg_path (str): Path to PSG.edf file.
@@ -50,6 +58,9 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
             recording is the subject awake and out of bed; keeping all of it makes Wake
             ~68% of the data and inflates accuracy. Standard protocol (DeepSleepNet,
             AttnSleep, TinySleepNet) keeps 30 min either side. Set to None to keep everything.
+        normalization_method (str): ``causal_rolling`` (recommended) or ``none``.
+        normalization_window_seconds (float): Trailing window used by causal normalization.
+        normalization_eps (float): Minimum usable rolling standard deviation.
 
     Returns:
         tuple: (signal_windows, labels)
@@ -66,7 +77,12 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     # Identify target channel
     matching_channel = find_eeg_channel(raw.ch_names, target_channel)
     print(f"Selected channel: {matching_channel}")
-    raw.pick_channels([matching_channel])
+    # MNE renamed pick_channels -> pick in 1.5 and keeps the old name only as a legacy
+    # shim; prefer the current API so a newer MNE release cannot break preprocessing.
+    if hasattr(raw, "pick"):
+        raw.pick([matching_channel])
+    else:  # pragma: no cover - MNE < 1.5
+        raw.pick_channels([matching_channel])
     
     # Resample if frequency is different
     sfreq = raw.info['sfreq']
@@ -81,6 +97,24 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     total_duration = n_samples / resample_rate
     
     print(f"Total duration: {total_duration:.1f} seconds ({n_samples} samples)")
+
+    normalized_data = None
+    if normalization_method == "epoch_zscore":
+        print("Normalization: legacy full-epoch z-score "
+              "(WARNING: uses later samples within each 30 s epoch, so the pipeline "
+              "is NOT end-to-end causal. Archived-result reproduction only.)")
+    else:
+        normalization_window_samples = int(round(normalization_window_seconds * resample_rate))
+        normalized_data = normalize_signal(
+            raw_data[0],
+            method=normalization_method,
+            window_samples=normalization_window_samples,
+            eps=normalization_eps,
+        )
+        print(
+            f"Normalization: {normalization_method} "
+            f"(trailing window {normalization_window_seconds:g} s, resets per recording)"
+        )
     
     # Map sleep stages per second
     second_labels = np.full(int(total_duration), -1, dtype=int)
@@ -147,14 +181,15 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         start_sample = start_sec * resample_rate
         end_sample = end_sec * resample_rate
         
-        epoch_signal = raw_data[0, start_sample:end_sample]
-        
-        # Z-score normalization per 30-second epoch
-        mean = np.mean(epoch_signal)
-        std = np.std(epoch_signal)
-        if std == 0:
-            std = 1e-8
-        normalized_epoch = (epoch_signal - mean) / std
+        if normalization_method == "epoch_zscore":
+            epoch_signal = raw_data[0, start_sample:end_sample]
+            mean = np.mean(epoch_signal)
+            std = np.std(epoch_signal)
+            if std < normalization_eps:
+                std = normalization_eps
+            normalized_epoch = (epoch_signal - mean) / std
+        else:
+            normalized_epoch = normalized_data[start_sample:end_sample]
         
         # Reshape to 30 1-second windows (each of size 100 samples)
         # shape: (30, 100)
@@ -191,7 +226,27 @@ def main():
     target_channel = config['data']['target_channel']
     resample_rate = config['data']['resample_rate']
     wake_trim_minutes = config['data'].get('wake_trim_minutes', 30)
-    
+    # Configs predating streaming normalization intentionally retain the archived behavior.
+    normalization = config['data'].get('normalization', {'method': 'epoch_zscore'})
+    normalization_method = normalization.get('method', 'causal_rolling')
+    normalization_window_seconds = normalization.get('window_seconds', 30)
+    normalization_eps = normalization.get('eps', 1e-8)
+
+    print("=========================================")
+    print(f"Config              : {args.config}")
+    print(f"Raw directory       : {raw_dir}")
+    print(f"Processed directory : {processed_dir}")
+    print(f"Normalization       : {normalization_method}")
+    if normalization_method == "epoch_zscore":
+        print("  !! epoch_zscore is the archived, NON-causal preprocessing. Use it only to")
+        print("  !! reproduce the archived numbers. New experiments should set")
+        print("  !! data.normalization.method: causal_rolling in the config.")
+    else:
+        print(f"  trailing window   : {normalization_window_seconds:g} s "
+              f"({int(round(normalization_window_seconds * resample_rate))} samples), "
+              f"reset per recording")
+    print("=========================================")
+
     os.makedirs(processed_dir, exist_ok=True)
     
     # Find all PSG files
@@ -249,6 +304,9 @@ def main():
     for sub_id, psg_path, hypno_path in pairs:
         grouped[sub_id].append((psg_path, hypno_path))
 
+    manifest_subjects = {}
+    failed_recordings = []
+
     for sub_id, recordings in sorted(grouped.items()):
         print(f"\n=========================================")
         print(f"Processing Subject: {sub_id}  ({len(recordings)} recording(s)/night(s))")
@@ -257,13 +315,20 @@ def main():
         for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
             try:
                 x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate,
-                                       wake_trim_minutes=wake_trim_minutes)
+                                       wake_trim_minutes=wake_trim_minutes,
+                                       normalization_method=normalization_method,
+                                       normalization_window_seconds=normalization_window_seconds,
+                                       normalization_eps=normalization_eps)
                 xs.append(x)
                 ys.append(y)
             except Exception as e:
                 print(f"Error processing recording {os.path.basename(psg_path)}: {str(e)}")
                 import traceback
                 traceback.print_exc()
+                failed_recordings.append({
+                    "psg": os.path.basename(psg_path),
+                    "error": f"{type(e).__name__}: {e}",
+                })
 
         if not xs:
             print(f"No valid recordings processed for subject {sub_id}. Skipping.")
@@ -271,9 +336,88 @@ def main():
 
         x = np.concatenate(xs, axis=0)  # (total_seconds, 100)
         y = np.concatenate(ys, axis=0)  # (total_seconds,)
+
+        # Stored as float32: the dataset casts to float32 before it reaches the model, so
+        # this is numerically identical to the model and halves both disk and load time.
+        x = np.asarray(x, dtype=np.float32)
+        y = np.asarray(y, dtype=np.int64)
+
+        if not np.isfinite(x).all():
+            raise ValueError(
+                f"Subject {sub_id} produced non-finite normalized samples. "
+                "Refusing to write a corrupt file."
+            )
+
         out_path = os.path.join(processed_dir, f"subject_{sub_id}.npz")
-        np.savez_compressed(out_path, x=x, y=y)
+        np.savez_compressed(
+            out_path,
+            x=x,
+            y=y,
+            normalization_method=np.array(normalization_method),
+            normalization_window_seconds=np.array(normalization_window_seconds),
+            normalization_eps=np.array(normalization_eps),
+            wake_trim_minutes=np.array(-1 if wake_trim_minutes is None else wake_trim_minutes),
+            resample_rate=np.array(resample_rate),
+        )
+        counts = np.bincount(y, minlength=5).tolist()
+        manifest_subjects[sub_id] = {
+            "seconds": int(len(x)),
+            "nights": int(len(xs)),
+            "class_counts": {name: int(c) for name, c in zip(STAGE_NAMES, counts)},
+        }
         print(f"Successfully saved subject {sub_id} ({len(x)} seconds from {len(xs)} night(s)) to {out_path}")
+
+    # A manifest makes the processed directory self-describing: it records exactly which
+    # preprocessing produced it, so a run can never be reported against the wrong data.
+    total_counts = np.zeros(5, dtype=np.int64)
+    for info in manifest_subjects.values():
+        for idx, name in enumerate(STAGE_NAMES):
+            total_counts[idx] += info["class_counts"][name]
+    total_seconds = int(total_counts.sum())
+
+    manifest = {
+        "created_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "config": args.config,
+        "raw_dir": raw_dir,
+        "processed_dir": processed_dir,
+        "target_channel": target_channel,
+        "resample_rate": resample_rate,
+        "wake_trim_minutes": wake_trim_minutes,
+        "normalization": {
+            "method": normalization_method,
+            "window_seconds": normalization_window_seconds,
+            "eps": normalization_eps,
+        },
+        "end_to_end_causal_preprocessing": normalization_method in ("causal_rolling", "none"),
+        "n_psg_files_found": len(psg_files),
+        "n_recordings_paired": len(pairs),
+        "n_subjects_written": len(manifest_subjects),
+        "n_failed_recordings": len(failed_recordings),
+        "failed_recordings": failed_recordings,
+        "total_seconds": total_seconds,
+        "class_distribution": {
+            name: {
+                "seconds": int(total_counts[idx]),
+                "fraction": round(float(total_counts[idx]) / total_seconds, 6) if total_seconds else 0.0,
+            }
+            for idx, name in enumerate(STAGE_NAMES)
+        },
+        "subjects": manifest_subjects,
+    }
+    manifest_path = os.path.join(processed_dir, "preprocessing_manifest.json")
+    with open(manifest_path, "w") as mf:
+        json.dump(manifest, mf, indent=2, sort_keys=False)
+
+    print("\n=========================================")
+    print(f"Subjects written : {len(manifest_subjects)} / {len(grouped)}")
+    print(f"Failed recordings: {len(failed_recordings)}")
+    print(f"Total data       : {total_seconds:,} seconds ({total_seconds / 3600:.1f} h)")
+    if total_seconds:
+        dist = "  ".join(f"{name}={total_counts[i] / total_seconds:.1%}"
+                         for i, name in enumerate(STAGE_NAMES))
+        print(f"Class balance    : {dist}")
+    print(f"Manifest         : {manifest_path}")
+    print("=========================================")
 
 if __name__ == "__main__":
     main()

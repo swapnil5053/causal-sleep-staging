@@ -1,0 +1,31 @@
+Fold 2 held-out test results
+Test subjects: ['71', '43', '47', '80', '62', '40', '45', '42', '37', '63', '82', '65', '11', '81', '17', '54']
+Overall Accuracy: 0.7403
+Cohen's Kappa:    0.6579
+Macro F1-Score:   0.6967
+
+Aggregated to 30s epochs (41,644 epochs):
+Accuracy: 0.7424  Kappa: 0.6606  Macro F1: 0.6991
+
+Per-class F1: Wake (W)=0.879, N1=0.446, N2=0.749, N3=0.696, REM=0.713
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    Wake (W)       0.95      0.82      0.88    429060
+          N1       0.39      0.52      0.45    141180
+          N2       0.86      0.66      0.75    437220
+          N3       0.59      0.86      0.70    101100
+         REM       0.60      0.89      0.71    140760
+
+    accuracy                           0.74   1249320
+   macro avg       0.68      0.75      0.70   1249320
+weighted avg       0.79      0.74      0.75   1249320
+
+Confusion Matrix (Rows=True, Cols=Predicted):
+      W    N1    N2    N3   REM
+Wake (W) 349814 54181  1991   517 22557
+N1    13780 73510 27168  3386 23336
+N2     2301 49943 290160 57283 37533
+N3       78  1223 12294 86662   843
+REM     989  9247  5666   147 124711

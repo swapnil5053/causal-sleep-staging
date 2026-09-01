@@ -7,21 +7,60 @@ period. Checkpoints selected on validation kappa, early stopping with patience 8
 Two dataset sizes are reported: Sleep-EDF-20 (20 subjects, 39 recordings) and Sleep-EDF-78
 (78 subjects, 153 recordings, 1,629 hours).
 
+Two normalization regimes are also reported. The earlier runs z-score each 30-second epoch
+using that epoch's own statistics, which reads samples from later in the epoch; the network is
+causal but the pipeline is not. The streaming runs use a trailing 30-second z-score, making the
+whole path end-to-end causal. The streaming column is the primary result.
+
 ## Headline
 
-| Metric | Sleep-EDF-20 | Sleep-EDF-78 |
-|---|---|---|
-| Accuracy | 0.744 | 0.723 |
-| Cohen's kappa | 0.662 | 0.634 |
-| Macro F1 | 0.688 | 0.662 |
-| N1 F1 | 0.336 | 0.398 |
-| Kappa at 30 s | 0.684 | 0.652 |
-| Fold-to-fold kappa sd | 0.092 | 0.030 |
-| Kappa with 30 s causal smoothing | | 0.642 |
-| Kappa pooled over 3 seeds | | 0.641 |
-| Stage changes per hour, raw / smoothed / human | | 181 / 26 / 13 |
-| Parameters | 30,757 | 30,757 |
-| CPU inference | 0.026 ms/s | 0.026 ms/s |
+| Metric | Sleep-EDF-20 | Sleep-EDF-78, epoch z-score | Sleep-EDF-78, streaming |
+|---|---|---|---|
+| Accuracy | 0.744 | 0.723 | **0.749** |
+| Cohen's kappa | 0.662 | 0.634 | **0.663** |
+| Macro F1 | 0.688 | 0.662 | **0.690** |
+| N1 F1 | 0.336 | 0.398 | **0.414** |
+| Kappa at 30 s | 0.684 | 0.652 | **0.683** |
+| Fold-to-fold kappa sd | 0.092 | 0.030 | 0.033 |
+| Kappa with 30 s causal smoothing | | 0.642 | |
+| Kappa pooled over 3 seeds | | 0.641 | **0.665** |
+| Stage changes per hour, raw / smoothed / human | | 181 / 26 / 13 | |
+| End-to-end causal preprocessing | no | no | **yes** |
+| Parameters | 30,757 | 30,757 | 30,757 |
+| CPU inference | 0.026 ms/s | 0.026 ms/s | 0.026 ms/s |
+
+## End-to-end causal preprocessing
+
+Per-epoch z-scoring was the last place future signal entered the pipeline. Replacing it with a
+trailing 30-second window removes that dependency, and `scripts/verify_causality.py` confirms
+the whole path — raw sample, normalization, network — is bit-identical under a future
+perturbation.
+
+The change costs nothing. Holding subjects, folds, seed and architecture fixed, it improves
+every headline metric:
+
+| Metric | Epoch z-score | Causal rolling | Change |
+|---|---|---|---|
+| Accuracy | 0.7226 | 0.7487 | +0.0261 |
+| Kappa | 0.6335 | 0.6634 | +0.0299 |
+| Macro F1 | 0.6616 | 0.6903 | +0.0287 |
+| N1 F1 | 0.398 | 0.414 | +0.016 |
+| Kappa at 30 s | 0.652 | 0.683 | +0.031 |
+
+A trailing window tracks amplitude drift within an epoch instead of assuming one scale for the
+whole 30 seconds, which plausibly explains the gain. Removing the leak improved the model rather
+than exposing a hidden dependence on it.
+
+### Per fold, Sleep-EDF-78 streaming causal
+
+| Fold | Accuracy | Kappa | Macro F1 | W | N1 | N2 | N3 | REM |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 0.7189 | 0.6237 | 0.6599 | 0.879 | 0.434 | 0.740 | 0.570 | 0.677 |
+| 1 | 0.7341 | 0.6444 | 0.6772 | 0.875 | 0.412 | 0.789 | 0.666 | 0.645 |
+| 2 | 0.7533 | 0.6713 | 0.6944 | 0.896 | 0.402 | 0.769 | 0.674 | 0.731 |
+| 3 | 0.7886 | 0.7116 | 0.7256 | 0.913 | 0.434 | 0.811 | 0.735 | 0.734 |
+| 4 | 0.7487 | 0.6661 | 0.6943 | 0.873 | 0.388 | 0.774 | 0.716 | 0.720 |
+| Mean | 0.7487 | 0.6634 | 0.6903 | 0.887 | 0.414 | 0.777 | 0.672 | 0.702 |
 
 Kappa is lower on the larger set, which is expected: Sleep-EDF-78 spans ages 25 to 101 and is
 a harder, more representative population. Published models show the same direction (AttnSleep
@@ -83,6 +122,39 @@ At 20 subjects the same experiment gave +0.0143 with p = 0.28, the wrong sign. F
 there is three times larger (kappa sd 0.092 against 0.030), enough to swamp an effect this size.
 Causality penalties measured on 20-subject splits should be treated with caution.
 
+### Replication under end-to-end causal preprocessing
+
+Repeating the comparison with trailing-window normalization, so that neither arm's preprocessing
+reads the future, reproduces the effect at the same magnitude. Three seeds x five folds:
+
+| Seed | Causal | Non-causal | Difference | Causal loses |
+|---|---|---|---|---|
+| 42 | 0.6634 | 0.6912 | -0.0278 | 5/5 |
+| 43 | 0.6649 | 0.6893 | -0.0244 | 5/5 |
+| 44 | 0.6664 | 0.6888 | -0.0224 | 4/5 |
+| **Pooled** | **0.6649** | **0.6898** | **-0.0249** | **14/15** |
+
+Paired t(14) = -7.33, p = 3.75e-06. Bootstrap 95% CI [-0.0310, -0.0183], Cohen's d = -1.89,
+Wilcoxon p = 0.0001. The effect varies little across seeds (sd 0.0028), so it is not an artefact
+of initialisation. Cohen's d is inflated at this sample size; the bootstrap interval is the more
+honest summary.
+
+Per-fold kappa for seed 42 is:
+
+| Fold | Causal | Non-causal | Difference |
+|---|---|---|---|
+| 0 | 0.6237 | 0.6652 | -0.0415 |
+| 1 | 0.6444 | 0.6641 | -0.0197 |
+| 2 | 0.6713 | 0.7063 | -0.0350 |
+| 3 | 0.7116 | 0.7444 | -0.0328 |
+| 4 | 0.6661 | 0.6762 | -0.0101 |
+
+Measuring -0.0249 here against -0.0287 pooled over three seeds under the earlier normalization
+means the penalty survives a change of preprocessing regime. It is a property of the causal
+constraint, not of one pipeline.
+
+The single fold where the causal model wins (seed 44, one of five) is the only one of 15
+measurements to break the pattern, and its margin is small. Reported here rather than omitted.
 
 ## Per fold, Sleep-EDF-78 causal
 
@@ -168,11 +240,18 @@ Intel Core i9-14900HX, 200 runs each.
 
 - Single channel (Fpz-Cz) and a single dataset family.
 - Supervision is 30 s labels replicated to 1 Hz, not genuine per-second scoring.
-- The causality effect rests on 15 paired measurements (3 seeds x 5 folds) on one dataset family.
+- The causality effect rests on 15 paired measurements (3 seeds x 5 folds) under epoch
+  normalization and 15 more under streaming normalization, all on one dataset family.
 
 ## Artifacts
 
-- `results/sleep78_causal/`, `results/sleep78_noncausal/` main result and causality ablation
+- `results/sleep78_streaming_causal/`, `results/sleep78_streaming_noncausal/` primary result,
+  end-to-end causal pipeline
+- `results/sleep78_streaming_causal_s43/`, `_s44/` and their non-causal counterparts, seeds 43-44
+- `results/statistics_streaming.md` paired test for seed 42
+- `results/statistics_streaming_pooled.md` pooled test over all three seeds
+- `results/causality_verification.md` future-perturbation report for the full path
+- `results/sleep78_causal/`, `results/sleep78_noncausal/` earlier epoch-normalized runs
 - `results/run_a_baseline/`, `run_b_context/`, `run_c_depth/` configuration ablation, 20 subjects
 - `results/run_d_noncausal/`, `run_d2_noncausal/` causality ablation, 20 subjects
 - `results/trimmed/`, `results/baseline_untrimmed/` preprocessing ablation
@@ -180,7 +259,11 @@ Intel Core i9-14900HX, 200 runs each.
 ## Reproducing
 
 ```bash
-python -m src.data.preprocessing --all --processed_dir data/processed78
-python -m src.train.train --config configs/sleep78_causal.yaml --fold -1
-python -m src.eval.evaluate --config configs/sleep78_causal.yaml --fold 0   # repeat 0-4
+python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
+python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold -1
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0  # repeat 0-4
 ```
+
+Swap in `configs/sleep78_streaming_noncausal.yaml` for the ablation arm; both read the same
+processed directory. The earlier epoch-normalized numbers reproduce from
+`configs/sleep78_causal.yaml` against `data/processed78`.

@@ -6,8 +6,66 @@ from the repository root. Raw Sleep-EDF data is not distributed with this reposi
 > **Causality scope:** the archived experiments use per-epoch z-score normalization calculated
 > over each complete 30-second epoch. The neural network is causal with respect to its normalized
 > input, but this preprocessing step uses later samples from the epoch. Preserve it only when
-> reproducing the archived numbers exactly. A new end-to-end causal study should introduce a
-> past-only normalization strategy and retrain all compared models.
+> reproducing the archived numbers exactly. The streaming configurations below replace it with a
+> past-only statistic and retrain every compared model.
+
+### End-to-end causal preprocessing pilot
+
+The streaming configurations are isolated from the archived epoch-normalized data: they read and
+write their own `processed_dir`, log directory and checkpoint directory, so nothing already
+archived is touched. They apply a trailing 30-second z-score at every raw sample; the statistic
+at time `t` contains only samples at or before `t` and resets at each recording.
+
+| Config | Seed | Causal | Normalization |
+|---|---:|:---:|---|
+| `configs/sleep78_streaming_causal.yaml` | 42 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal.yaml` | 42 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_s43.yaml` | 43 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_s44.yaml` | 44 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_w120.yaml` | 42 | yes | trailing 120 s (window robustness, optional) |
+
+Order of work:
+
+```bash
+# 0. proofs and sanity checks, seconds, no data required
+python -m unittest discover -s tests -v
+python smoke_test.py configs/sleep78_streaming_causal.yaml
+python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
+
+# 1. preprocessing, once, shared by both arms
+python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
+
+# 2. go/no-go on one fold per arm before committing to the full sweep
+python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold 0
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0
+```
+
+Compare that fold-0 kappa against fold 0 of `results/sleep78_causal/test_metrics_summary.csv`,
+which is the same architecture, seed and split under the old epoch normalization. A drop of a
+few thousandths is expected and reportable; a collapse means the window length needs revisiting
+before spending the rest of the compute.
+
+Each fold's checkpoint directory records the subject split, so folds may be run individually or
+with `--fold -1`; training re-seeds per fold, and both give identical results.
+
+`scripts/verify_causality.py` has been run against the trained causal checkpoint and its report
+is archived at `results/causality_verification.md`. Re-run it after any change to normalization,
+padding or masking, and archive the new report with the run; the end-to-end causal claim rests
+on it.
+
+### Preprocessing manifest
+
+Every preprocessing run writes `preprocessing_manifest.json` into its `processed_dir`. It records
+the config, normalization method and window, the number of PSG files found, paired, written and
+failed, the class distribution, and per-subject second counts. Archive it with the run: it is the
+evidence for the data-side half of the run record in section 9, and it is how a reviewer confirms
+which normalization produced a given result set.
+
+The dataset loader reads the same metadata from each `.npz` and refuses to build a dataset from a
+directory that mixes normalization regimes, so a partially reprocessed directory fails loudly at
+the start of training rather than silently producing an unreportable number.
 
 ## 1. Environment
 
@@ -72,8 +130,10 @@ Both the causal and non-causal 78-subject experiments point to `data/processed78
 is performed once and the same arrays are used in the controlled comparison. Each output file is
 named `subject_<ID>.npz` and contains:
 
-- `x`: normalized EEG with shape `(number_of_seconds, 100)`;
-- `y`: integer labels with shape `(number_of_seconds,)`.
+- `x`: normalized EEG, `float32`, shape `(number_of_seconds, 100)`;
+- `y`: integer labels, `int64`, shape `(number_of_seconds,)`;
+- `normalization_method`, `normalization_window_seconds`, `normalization_eps`,
+  `wake_trim_minutes`, `resample_rate`: the preprocessing that produced the file.
 
 Before training, record the number of raw PSG files, paired hypnograms, processed subjects, and
 any skipped recordings. Never combine processed files created with different preprocessing
@@ -93,8 +153,20 @@ Run the unit tests with the Python standard library test runner:
 python -m unittest discover -s tests -v
 ```
 
-The tests check tensor dimensions, parameter count, model-layer causality, and subject split
-integrity. They do not prove end-to-end causality through the current normalization step.
+The tests check tensor dimensions, parameter count, model-layer causality, subject split
+integrity, and — in `tests/test_end_to_end_causality.py` — causality of the composed
+normalization-plus-model path, including that the offline arrays equal the online
+sample-at-a-time filter and that the non-causal arm genuinely does leak.
+
+For a run-specific, archivable version of the same proof against real weights:
+
+```bash
+python scripts/verify_causality.py \
+  --config configs/sleep78_streaming_causal.yaml \
+  --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth \
+  --subject data/processed78_streaming/subject_00.npz \
+  --out results/causality_verification.md
+```
 
 ## 5. Training
 
@@ -174,6 +246,29 @@ Generate the archived statistical summary:
 python analysis_stats.py --out results/statistics.md
 ```
 
+Run the same paired tests on any other run pair with `--pair NAME=causal_dir,noncausal_dir`
+(repeatable). For the streaming pilot:
+
+```bash
+python analysis_stats.py \
+  --pair "Sleep-EDF-78 streaming=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42" \
+  --out results/statistics_streaming.md
+```
+
+When the same comparison has been repeated under several seeds, report the pooled paired test
+over all seeds x folds rather than three separate five-fold tests:
+
+```bash
+python scripts/pool_seeds.py \
+  --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
+  --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
+  --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44 \
+  --out results/statistics_streaming_pooled.md
+```
+
+It refuses to run if a summary CSV lists a fold twice or if the two arms cover different folds,
+so a half-finished sweep cannot be reported as a complete one.
+
 Generate figures (requires the processed data and referenced checkpoint for the hypnogram panel):
 
 ```bash
@@ -209,6 +304,16 @@ checkpoints are archived under `results/`.
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_noncausal/` |
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_noncausal_s43/` |
 | Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_noncausal_s44/` |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal.yaml` | 42 | 120 s | yes | `results/sleep78_streaming_causal_s42/` |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s43.yaml` | 43 | 120 s | yes | `results/sleep78_streaming_causal_s43/` |
+| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s44.yaml` | 44 | 120 s | yes | `results/sleep78_streaming_causal_s44/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_streaming_noncausal_s42/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_streaming_noncausal_s43/` |
+| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_streaming_noncausal_s44/` |
+
+The streaming rows use trailing-window normalization and `data/processed78_streaming`. Every
+other row uses the epoch z-score and `data/processed78`. The two regimes are never mixed in one
+processed directory.
 
 `configs/sleep78_ctx300.yaml` defines a 300-second causal experiment, but this repository does
 not contain a matching curated result directory. `results/trimmed/` and

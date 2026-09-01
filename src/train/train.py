@@ -103,7 +103,11 @@ def run_fold(fold_idx, config, device, args):
     print(f"\n==================================================")
     print(f"               STARTING FOLD {fold_idx}")
     print(f"==================================================")
-    
+
+    # Re-seed per fold so that `--fold 3` on its own reproduces fold 3 of a `--fold -1`
+    # sweep. Without this, a fold's initialisation depends on how many folds ran before it.
+    set_seed(config['train']['seed'] + fold_idx)
+
     processed_dir = args.processed_dir or config['data']['processed_dir']
     checkpoint_dir = args.checkpoint_dir or config['train']['checkpoint_dir']
     log_dir = args.log_dir or config['train'].get('log_dir', 'logs')
@@ -151,21 +155,24 @@ def run_fold(fold_idx, config, device, args):
         print("Using weighted sampler to handle class imbalance (oversampling N1/N3).")
         sampler = get_weighted_sampler(train_dataset)
         
+    # pinning host memory only helps (and is only supported) when copying to a GPU
+    pin_memory = device.type == "cuda"
+
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=batch_size, 
-        sampler=sampler, 
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
         shuffle=(sampler is None),
         num_workers=0, # set to 0 to prevent windows multiprocessing issues
-        pin_memory=True
+        pin_memory=pin_memory
     )
-    
+
     val_loader = DataLoader(
-        val_dataset, 
-        batch_size=batch_size, 
-        shuffle=False, 
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
         num_workers=0,
-        pin_memory=True
+        pin_memory=pin_memory
     )
     
     # Initialize Model

@@ -54,10 +54,18 @@ def required_n(effect_d, power=0.80, alpha=0.05):
 def analyse(name, causal_dir, noncausal_dir):
     kc, kn = load_kappa(causal_dir), load_kappa(noncausal_dir)
     if len(kc) != len(kn):
-        raise ValueError(f"{name}: fold count mismatch")
+        raise ValueError(
+            f"{name}: fold count mismatch ({len(kc)} in {causal_dir}, "
+            f"{len(kn)} in {noncausal_dir}). Evaluation appends rows, so a duplicated "
+            f"summary row is the usual cause."
+        )
     diff = [a - b for a, b in zip(kc, kn)]
     n = len(diff)
+    if n < 2:
+        raise ValueError(f"{name}: need at least 2 folds, found {n}")
     mean, sd = st.mean(diff), st.stdev(diff)
+    if sd == 0:
+        raise ValueError(f"{name}: per-fold differences are identical, no variance to test")
     se = sd / math.sqrt(n)
     t = mean / se
     d = mean / sd                                   # Cohen's d for paired samples
@@ -79,7 +87,7 @@ def analyse(name, causal_dir, noncausal_dir):
                 loses=sum(1 for x in diff if x < 0))
 
 
-def render(rows):
+def render(rows, interpret=True):
     L = []
     w = L.append
     w("# Statistical analysis of the causality ablation\n")
@@ -111,7 +119,7 @@ def render(rows):
         w(f"- Fold-to-fold kappa sd: causal {r['sd_c']:.4f}, non-causal {r['sd_n']:.4f}")
         w(f"- Folds needed for 80% power at this effect size: {r['need_80']}")
         w(f"- Folds needed for 90% power: {r['need_90']}\n")
-    if len(rows) == 2:
+    if interpret and len(rows) == 2:
         a, b = rows
         w("## Interpretation\n")
         sig = b["p_t"] is not None and b["p_t"] < 0.05
@@ -131,14 +139,36 @@ def render(rows):
     return "\n".join(L) + "\n"
 
 
+def parse_pair(spec):
+    """Parse ``NAME=causal_dir,noncausal_dir`` from the command line."""
+    if "=" not in spec:
+        raise argparse.ArgumentTypeError(
+            f"--pair must look like NAME=causal_dir,noncausal_dir (got {spec!r})")
+    name, _, dirs = spec.partition("=")
+    parts = [p.strip() for p in dirs.split(",")]
+    if len(parts) != 2 or not all(parts):
+        raise argparse.ArgumentTypeError(
+            f"--pair needs exactly two comma-separated directories (got {spec!r})")
+    return (name.strip(), parts[0], parts[1])
+
+
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="results/statistics.md")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument(
+        "--pair", type=parse_pair, action="append", default=None,
+        metavar="NAME=CAUSAL_DIR,NONCAUSAL_DIR",
+        help="Compare an arbitrary run pair instead of the archived defaults. "
+             "Repeatable. Example: --pair 'Streaming-78=results/sleep78_streaming_causal,"
+             "results/sleep78_streaming_noncausal'")
     args = ap.parse_args()
 
+    pairs = args.pair if args.pair else PAIRS
+
     rows = []
-    for name, c, n in PAIRS:
+    for name, c, n in pairs:
         if os.path.isdir(c) and os.path.isdir(n):
             rows.append(analyse(name, c, n))
         else:
@@ -147,8 +177,12 @@ def main():
         print("no comparable runs found")
         return
 
-    text = render(rows)
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    # The closing narrative compares the 20- and 78-subject archived runs specifically,
+    # so it is only emitted for the default pairing.
+    text = render(rows, interpret=(args.pair is None))
+    out_dir = os.path.dirname(args.out)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     open(args.out, "w").write(text)
     if not args.quiet:
         print(text)

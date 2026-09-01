@@ -16,17 +16,23 @@ architecture, parameter for parameter, trained with and without access to future
 Subject-wise 5-fold cross-validation on Sleep-EDF, single channel Fpz-Cz at 100 Hz, five classes
 (W, N1, N2, N3, REM).
 
-| Metric | Sleep-EDF-20 | Sleep-EDF-78 |
-|---|---|---|
-| Accuracy | 74.4% | 72.3% |
-| Cohen's kappa | 0.662 | 0.634 |
-| Macro F1 | 0.688 | 0.662 |
-| N1 F1 | 0.336 | 0.398 |
-| Kappa at 30 s granularity | 0.684 | 0.652 |
-| Fold-to-fold kappa sd | 0.092 | 0.030 |
-| Kappa with 30 s causal smoothing | | 0.642 |
-| Parameters | 30,757 | 30,757 |
-| CPU inference | 0.026 ms/s | 0.026 ms/s |
+| Metric | Sleep-EDF-20 | Sleep-EDF-78 | Sleep-EDF-78, streaming |
+|---|---|---|---|
+| Accuracy | 74.4% | 72.3% | **74.9%** |
+| Cohen's kappa | 0.662 | 0.634 | **0.663** |
+| Macro F1 | 0.688 | 0.662 | **0.690** |
+| N1 F1 | 0.336 | 0.398 | **0.414** |
+| Kappa at 30 s granularity | 0.684 | 0.652 | **0.683** |
+| Fold-to-fold kappa sd | 0.092 | 0.030 | 0.033 |
+| Kappa with 30 s causal smoothing | | 0.642 | |
+| End-to-end causal preprocessing | no | no | **yes** |
+| Parameters | 30,757 | 30,757 | 30,757 |
+| CPU inference | 0.026 ms/s | 0.026 ms/s | 0.026 ms/s |
+
+The first two columns z-score each 30-second epoch, which reads samples from later in that
+epoch: the network is causal, the pipeline is not. The streaming column replaces that with a
+trailing 30-second window, so no stage of the pipeline touches the future. Kappa rises by
+0.030 rather than falling, so end-to-end causality costs nothing here.
 
 Predicting every second independently makes the raw output far more fragmented than a scored
 hypnogram: 181 stage changes an hour against 13 for the technician. A trailing-window mode
@@ -37,14 +43,20 @@ filter, which uses only past predictions and so stays causal, cuts that to 26 an
 
 The same model with the causal constraint removed, holding parameters, data and folds fixed:
 
-| Subjects | Causal | Non-causal | Difference | p | Folds causal loses |
-|---|---|---|---|---|---|
-| 20 | 0.6625 | 0.6482 | +0.014 | 0.276 | 2 of 5 |
-| 78 | 0.6335 | 0.6570 | **-0.024** | **0.013** | **5 of 5** |
+| Subjects | Normalization | Causal | Non-causal | Difference | p | Folds causal loses |
+|---|---|---|---|---|---|---|
+| 20 | epoch z-score | 0.6625 | 0.6482 | +0.014 | 0.276 | 2 of 5 |
+| 78 | epoch z-score | 0.6406 | 0.6693 | -0.029 | 5.9e-08 | 15 of 15 |
+| 78 | causal rolling | 0.6649 | 0.6898 | **-0.025** | **3.8e-06** | **14 of 15** |
 
-On 78 subjects, giving the model access to future signal improves kappa by 0.024, consistently
-across every fold (paired t(4) = -4.24, p = 0.013). That is the measurable price of running in
-real time.
+Both 78-subject rows pool three seeds over five folds (15 paired measurements each); the
+20-subject row is a single seed.
+
+On 78 subjects, giving the model access to future signal improves kappa by roughly 0.03,
+consistently across every fold. That is the measurable price of running in real time, and it
+holds under both normalization regimes, each measured over three seeds and five folds: -0.029
+with epoch z-scoring and -0.025 with the fully causal pipeline (paired t(14) = -7.33,
+p = 3.8e-06, 95% CI [-0.031, -0.018]). The causal model loses in 14 of those 15 measurements.
 
 The same comparison on 20 subjects is not significant and its sign is unstable, because
 fold-to-fold variance there is three times larger (kappa sd 0.092 against 0.030). Causality
@@ -149,7 +161,26 @@ python smoke_test.py configs/run_c_depth.yaml
 
 ## Preprocessing notes
 
-Two decisions affect the numbers a lot.
+Three decisions affect the numbers a lot.
+
+**Normalization.** The archived runs z-scored each 30-second epoch using that epoch's own
+mean and standard deviation. The network is causal with respect to its input, but that
+statistic reads samples from later in the epoch, so the *pipeline* was not end-to-end causal
+even though the model was. `data.normalization.method: causal_rolling` replaces it with a
+trailing z-score: at sample *t* the mean and standard deviation come from
+`[t - window + 1, t]` only, and the statistic resets at the start of every recording. It is
+mathematically identical to what a device computes sample by sample, and
+`src/data/normalization.py` ships that online filter (`StreamingZScore`) so the equivalence
+is checked rather than asserted.
+
+`python scripts/verify_causality.py` runs the whole path — raw sample, normalization, model —
+perturbs the input at a future second, and requires every earlier output to be bit-identical.
+It writes `results/causality_verification.md` and exits non-zero on failure, so it can gate a
+run. Configs that still use `epoch_zscore` fail it by design.
+
+Only `configs/sleep78_streaming_*.yaml` use the causal normalization; every other config keeps
+`epoch_zscore` so the archived numbers stay reproducible. The two regimes write to different
+`processed_dir`s and the loader refuses to mix them in one directory.
 
 Sleep-EDF cassette recordings run about 20 hours per night, most of it awake and out of bed.
 Keeping all of it makes Wake 68% of the data and inflates accuracy, and it is not what the
@@ -166,14 +197,18 @@ should be read with that in mind, and kappa is the more meaningful number.
 
 ```
 src/
-  data/preprocessing.py   EDF loading, wake trimming, per-epoch normalisation
+  data/preprocessing.py   EDF loading, wake trimming, normalisation, run manifest
+  data/normalization.py   trailing-window z-score, offline and online implementations
   data/dataset.py         windowing, subject-wise CV splits, weighted sampler
   model/                  causal conv, MRCNN, TCN, attention, classifier
   train/                  focal and weighted-CE losses, cross-validation loop
   eval/evaluate.py        metrics and CPU latency benchmark
-configs/                  default plus the ablation configs
+configs/                  default plus the ablation and streaming configs
 results/                  archived runs, see RESULTS.md
+scripts/verify_causality.py   end-to-end causality proof, writes a report
+scripts/validate_results.py   structural check on archived result CSVs
 smoke_test.py             fast pre-run sanity check
+tests/                    unit tests, including end-to-end causality
 ```
 
 ## Config notes

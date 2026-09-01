@@ -5,3 +5,4 @@ scipy>=1.10.0
 scikit-learn>=1.2.0
 mne>=1.4.0
 pyyaml>=6.0
+matplotlib>=3.6.0
