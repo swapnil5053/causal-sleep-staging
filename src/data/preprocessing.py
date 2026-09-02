@@ -168,16 +168,26 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         else:
             print("Wake trimming: no sleep epochs found, keeping the full recording.")
 
+    # Second indices where the kept signal restarts after a break. Dropping an unscored
+    # epoch splices two non-adjacent stretches together, and a context window that spans
+    # the join sees a discontinuity that never occurred in the recording.
+    segment_starts = []
+    previous_block = None
+
     for i in range(first_block, last_block):
         start_sec = i * 30
         end_sec = (i + 1) * 30
-        
+
         # Check label for this epoch (we check start of epoch, standard AASM labels map to 30s epochs)
         label = second_labels[start_sec]
         if label == -1:
             skipped_blocks += 1
             continue # Skip invalid/unknown labels (e.g. "?", movement, or out of range)
-            
+
+        if previous_block is None or i != previous_block + 1:
+            segment_starts.append(len(processed_signals) * 30)
+        previous_block = i
+
         start_sample = start_sec * resample_rate
         end_sample = end_sec * resample_rate
         
@@ -206,9 +216,11 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         
     x = np.vstack(processed_signals) # Shape: (N_seconds, 100)
     y = np.concatenate(processed_labels) # Shape: (N_seconds,)
-    
+
     print(f"Processed: {len(x)} seconds of data (skipped {skipped_blocks * 30} seconds of invalid/noise stages)")
-    return x, y
+    if len(segment_starts) > 1:
+        print(f"Continuity: {len(segment_starts)} segments (gaps left by unscored epochs)")
+    return x, y, np.array(segment_starts, dtype=np.int64)
 
 def main():
     parser = argparse.ArgumentParser(description="Preprocess Sleep-EDF EDF files.")
@@ -311,14 +323,17 @@ def main():
         print(f"\n=========================================")
         print(f"Processing Subject: {sub_id}  ({len(recordings)} recording(s)/night(s))")
         print(f"=========================================")
-        xs, ys = [], []
+        xs, ys, starts = [], [], []
         for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
             try:
-                x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate,
-                                       wake_trim_minutes=wake_trim_minutes,
-                                       normalization_method=normalization_method,
-                                       normalization_window_seconds=normalization_window_seconds,
-                                       normalization_eps=normalization_eps)
+                x, y, night_starts = process_subject(
+                    psg_path, hypno_path, target_channel, resample_rate,
+                    wake_trim_minutes=wake_trim_minutes,
+                    normalization_method=normalization_method,
+                    normalization_window_seconds=normalization_window_seconds,
+                    normalization_eps=normalization_eps)
+                # A night begins a new segment, and so does every gap inside it.
+                starts.extend(int(sum(len(prev) for prev in xs) + s) for s in night_starts)
                 xs.append(x)
                 ys.append(y)
             except Exception as e:
@@ -358,11 +373,13 @@ def main():
             normalization_eps=np.array(normalization_eps),
             wake_trim_minutes=np.array(-1 if wake_trim_minutes is None else wake_trim_minutes),
             resample_rate=np.array(resample_rate),
+            segment_starts=np.array(sorted(set(starts)), dtype=np.int64),
         )
         counts = np.bincount(y, minlength=5).tolist()
         manifest_subjects[sub_id] = {
             "seconds": int(len(x)),
             "nights": int(len(xs)),
+            "segments": len(set(starts)),
             "class_counts": {name: int(c) for name, c in zip(STAGE_NAMES, counts)},
         }
         print(f"Successfully saved subject {sub_id} ({len(x)} seconds from {len(xs)} night(s)) to {out_path}")
