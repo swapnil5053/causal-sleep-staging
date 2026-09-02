@@ -67,6 +67,50 @@ def run_latency_benchmark(model_class, config, num_runs=200):
         print(f"  Status: FAILED/SLOW (Exceeded the target threshold of {target_threshold} ms/sec)")
     print("==================================================")
 
+def per_subject_metrics(subjects, targets, preds):
+    """Score every test subject separately.
+
+    A fold pools ~16 nights into one kappa, which is why the causality comparison only ever
+    had five paired measurements per seed. Scoring each subject turns one fold into as many
+    paired differences as it holds test subjects, and unlike folds those really are
+    independent: a subject appears in the test set of exactly one fold.
+
+    Returns one dict per subject, in the order the subjects appear in the test set.
+    """
+    subjects = np.asarray(subjects)
+    targets = np.asarray(targets)
+    preds = np.asarray(preds)
+
+    rows = []
+    for subject in dict.fromkeys(subjects.tolist()):     # preserves order, drops repeats
+        mask = subjects == subject
+        y_true, y_pred = targets[mask], preds[mask]
+        # A night the technician scored as a single stage has no kappa to report. It is left
+        # empty rather than written as zero, which would quietly drag any paired mean.
+        kappa = float("nan") if len(set(y_true.tolist())) < 2 else cohen_kappa_score(y_true, y_pred)
+        rows.append({
+            "subject": subject,
+            "n_seconds": int(mask.sum()),
+            "accuracy": accuracy_score(y_true, y_pred),
+            "kappa": kappa,
+            "macro_f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
+            "per_class_f1": f1_score(y_true, y_pred, average=None, labels=[0, 1, 2, 3, 4],
+                                     zero_division=0),
+        })
+    return rows
+
+
+SUBJECT_CSV_HEADER = "fold,subject,n_seconds,accuracy,kappa,macro_f1,f1_W,f1_N1,f1_N2,f1_N3,f1_REM\n"
+
+
+def format_subject_row(fold_idx, row):
+    """One CSV line. An unscoreable kappa is written as an empty field, not a zero."""
+    kappa = "" if np.isnan(row["kappa"]) else f"{row['kappa']:.4f}"
+    return (f"{fold_idx},{row['subject']},{row['n_seconds']},{row['accuracy']:.4f},"
+            f"{kappa},{row['macro_f1']:.4f},"
+            + ",".join(f"{v:.4f}" for v in row["per_class_f1"]) + "\n")
+
+
 def evaluate_fold(fold_idx, config, device, args):
     """Load fold model, run predictions on held-out test subjects, and report metrics."""
     checkpoint_dir = args.checkpoint_dir or config['train']['checkpoint_dir']
@@ -116,6 +160,7 @@ def evaluate_fold(fold_idx, config, device, args):
     all_targets = []
     
     with torch.no_grad():
+        # batch_size is 1 and shuffle is off, so predictions come back in dataset order
         for x, y in test_loader:
             x, y = x.to(device), y.to(device)
             logits = model(x)
@@ -225,7 +270,40 @@ def evaluate_fold(fold_idx, config, device, args):
                  ",".join(f"{v:.4f}" for v in per_class_f1) +
                  (f",{epoch30['accuracy']:.4f},{epoch30['kappa']:.4f},{epoch30['macro_f1']:.4f}"
                   if epoch30 else ",,,") + "\n")
-    print(f"Saved test report to {report_path} and appended headline metrics to {summary_path}")
+    # Per-subject breakdown. The dataset records which subject each window came from, and
+    # evaluation uses stride == seq_len, so every window contributes exactly seq_len
+    # consecutive predictions in order.
+    subjects_per_second = np.repeat(test_dataset.window_subjects, seq_len)
+    if len(subjects_per_second) != len(all_preds):
+        raise RuntimeError(
+            f"Fold {fold_idx}: {len(subjects_per_second)} subject labels for "
+            f"{len(all_preds)} predictions. Per-subject attribution would be wrong, so it "
+            f"is not written.")
+
+    subject_rows = per_subject_metrics(subjects_per_second, all_targets, all_preds)
+    subject_path = os.path.join(log_dir, f"fold_{fold_idx}_subject_metrics.csv")
+    with open(subject_path, "w") as pf:
+        pf.write(SUBJECT_CSV_HEADER)
+        for row in subject_rows:
+            pf.write(format_subject_row(fold_idx, row))
+
+    # A run-level copy as well, so a whole sweep is one read for the subject-level paired test.
+    run_subject_path = os.path.join(log_dir, "test_subject_metrics.csv")
+    write_subject_header = not os.path.exists(run_subject_path)
+    with open(run_subject_path, "a") as pf:
+        if write_subject_header:
+            pf.write(SUBJECT_CSV_HEADER)
+        for row in subject_rows:
+            pf.write(format_subject_row(fold_idx, row))
+
+    print(f"\nPer-subject results ({len(subject_rows)} held-out subjects):")
+    for row in subject_rows:
+        kappa = "  n/a" if np.isnan(row["kappa"]) else f"{row['kappa']:.4f}"
+        print(f"  subject {row['subject']:>4}: kappa {kappa}  acc {row['accuracy']:.4f}  "
+              f"macro-F1 {row['macro_f1']:.4f}  ({row['n_seconds']:,} s)")
+
+    print(f"\nSaved test report to {report_path}, per-subject metrics to {subject_path}, "
+          f"and appended headline metrics to {summary_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Sleep Staging Causal Network.")

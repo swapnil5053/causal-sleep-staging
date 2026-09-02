@@ -36,6 +36,10 @@ class SleepDataset(Dataset):
         
         self.windows = []
         self.labels = []
+        # Which subject each window came from. Windows are concatenated across subjects and
+        # the identity is otherwise lost, which is why evaluation could only ever report one
+        # pooled number per fold. Kept as a parallel array so nothing about batching changes.
+        self.window_subjects = []
         self.normalization_method = None
 
         # Load and segment data subject-by-subject
@@ -73,8 +77,11 @@ class SleepDataset(Dataset):
                 end = start + seq_len
                 self.windows.append(x[start:end])
                 self.labels.append(y[start:end])
+                self.window_subjects.append(sub_id)
                 
         # Convert lists to arrays or tensors
+        self.window_subjects = np.array(self.window_subjects, dtype=object)  # (N_windows,)
+
         if len(self.windows) > 0:
             self.windows = np.array(self.windows, dtype=np.float32) # (N_windows, L, 100)
             self.labels = np.array(self.labels, dtype=np.int64)     # (N_windows, L)
