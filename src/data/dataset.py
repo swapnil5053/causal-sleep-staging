@@ -24,13 +24,18 @@ class SleepDataset(Dataset):
     PyTorch Dataset that loads processed subject .npz files and yields
     fixed-length sequence windows (context length L) for training sequence models.
     """
-    def __init__(self, processed_dir, subject_ids, seq_len=30, stride=15):
+    def __init__(self, processed_dir, subject_ids, seq_len=30, stride=15, respect_segments=True):
         """
         Args:
             processed_dir (str): Directory containing preprocessed subject .npz files.
             subject_ids (list of str): List of subject IDs to load (e.g. ['00', '01']).
             seq_len (int): Sequence window length in seconds. Default: 30.
             stride (int): Stride for sliding window sequence extraction. Default: 15.
+            respect_segments (bool): Drop windows that span a recording discontinuity - a join
+                between two nights, or a gap left by dropped unscored epochs. Such a window
+                asks the model to read across a jump in time that never happened. Files written
+                before segment metadata existed carry none, and are read as one continuous
+                segment so archived runs reproduce exactly.
         """
         super(SleepDataset, self).__init__()
         
@@ -41,6 +46,8 @@ class SleepDataset(Dataset):
         # pooled number per fold. Kept as a parallel array so nothing about batching changes.
         self.window_subjects = []
         self.normalization_method = None
+        self.windows_dropped_at_segment_boundaries = 0
+        self.subjects_without_segment_metadata = []
 
         # Load and segment data subject-by-subject
         for sub_id in subject_ids:
@@ -73,8 +80,19 @@ class SleepDataset(Dataset):
                 print(f"Warning: Subject {sub_id} recording has fewer seconds ({num_seconds}) than seq_len ({seq_len}). Skipping.")
                 continue
                 
+            # Interior discontinuities for this subject: a window may not straddle one.
+            boundaries = []
+            if 'segment_starts' in data.files:
+                boundaries = [int(b) for b in np.asarray(data['segment_starts']).ravel()
+                              if 0 < int(b) < num_seconds]
+            else:
+                self.subjects_without_segment_metadata.append(sub_id)
+
             for start in range(0, num_seconds - seq_len + 1, stride):
                 end = start + seq_len
+                if respect_segments and any(start < b < end for b in boundaries):
+                    self.windows_dropped_at_segment_boundaries += 1
+                    continue
                 self.windows.append(x[start:end])
                 self.labels.append(y[start:end])
                 self.window_subjects.append(sub_id)
@@ -87,6 +105,13 @@ class SleepDataset(Dataset):
             self.labels = np.array(self.labels, dtype=np.int64)     # (N_windows, L)
             print(f"Dataset initialized with {len(self.windows)} windows from {len(subject_ids)} "
                   f"subjects (normalization: {self.normalization_method}).")
+            if self.windows_dropped_at_segment_boundaries:
+                print(f"  dropped {self.windows_dropped_at_segment_boundaries} window(s) spanning "
+                      f"a recording discontinuity.")
+            if self.subjects_without_segment_metadata:
+                print(f"  {len(self.subjects_without_segment_metadata)} subject(s) carry no "
+                      f"segment metadata and were read as one continuous recording "
+                      f"(preprocessed before segment tracking existed).")
         else:
             self.windows = np.empty((0, seq_len, 100), dtype=np.float32)
             self.labels = np.empty((0, seq_len), dtype=np.int64)

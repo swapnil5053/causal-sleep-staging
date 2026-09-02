@@ -63,9 +63,12 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         normalization_eps (float): Minimum usable rolling standard deviation.
 
     Returns:
-        tuple: (signal_windows, labels)
+        tuple: (signal_windows, labels, segment_starts)
             signal_windows: np.ndarray of shape (N_seconds, 100)
             labels: np.ndarray of shape (N_seconds,)
+            segment_starts: second offsets at which the recording is discontinuous. Unscored
+                epochs are dropped, so the retained seconds are not always contiguous in real
+                time; a window spanning one of these joins covers a gap that never happened.
     """
     print(f"Loading PSG: {os.path.basename(psg_path)}")
     raw = mne.io.read_raw_edf(psg_path, preload=True, verbose=False)
@@ -148,6 +151,10 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     
     processed_signals = []
     processed_labels = []
+    # Second offsets where the retained signal jumps in real time, because the epochs between
+    # were unscored and dropped. The first retained epoch always opens a segment.
+    segment_starts = []
+    previous_block = None
 
     skipped_blocks = 0
 
@@ -177,6 +184,11 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
         if label == -1:
             skipped_blocks += 1
             continue # Skip invalid/unknown labels (e.g. "?", movement, or out of range)
+
+        # A gap in retained epoch indices is a discontinuity in the output stream.
+        if previous_block is None or i != previous_block + 1:
+            segment_starts.append(len(processed_signals) * 30)
+        previous_block = i
             
         start_sample = start_sec * resample_rate
         end_sample = end_sec * resample_rate
@@ -207,8 +219,9 @@ def process_subject(psg_path, hypno_path, target_channel="EEG Fpz-Cz", resample_
     x = np.vstack(processed_signals) # Shape: (N_seconds, 100)
     y = np.concatenate(processed_labels) # Shape: (N_seconds,)
     
-    print(f"Processed: {len(x)} seconds of data (skipped {skipped_blocks * 30} seconds of invalid/noise stages)")
-    return x, y
+    print(f"Processed: {len(x)} seconds of data (skipped {skipped_blocks * 30} seconds of "
+          f"invalid/noise stages, leaving {len(segment_starts)} contiguous segment(s))")
+    return x, y, segment_starts
 
 def main():
     parser = argparse.ArgumentParser(description="Preprocess Sleep-EDF EDF files.")
@@ -311,14 +324,18 @@ def main():
         print(f"\n=========================================")
         print(f"Processing Subject: {sub_id}  ({len(recordings)} recording(s)/night(s))")
         print(f"=========================================")
-        xs, ys = [], []
+        xs, ys, segment_starts = [], [], []
         for psg_path, hypno_path in sorted(recordings):  # sorted -> deterministic night order
             try:
-                x, y = process_subject(psg_path, hypno_path, target_channel, resample_rate,
+                x, y, segments = process_subject(psg_path, hypno_path, target_channel, resample_rate,
                                        wake_trim_minutes=wake_trim_minutes,
                                        normalization_method=normalization_method,
                                        normalization_window_seconds=normalization_window_seconds,
                                        normalization_eps=normalization_eps)
+                # Each night is itself a discontinuity: they are concatenated with the
+                # daytime between them removed, and the normalizer resets at every recording.
+                offset = sum(len(prior) for prior in xs)
+                segment_starts.extend(start + offset for start in segments)
                 xs.append(x)
                 ys.append(y)
             except Exception as e:
@@ -358,11 +375,13 @@ def main():
             normalization_eps=np.array(normalization_eps),
             wake_trim_minutes=np.array(-1 if wake_trim_minutes is None else wake_trim_minutes),
             resample_rate=np.array(resample_rate),
+            segment_starts=np.asarray(sorted(set(segment_starts)), dtype=np.int64),
         )
         counts = np.bincount(y, minlength=5).tolist()
         manifest_subjects[sub_id] = {
             "seconds": int(len(x)),
             "nights": int(len(xs)),
+            "segments": int(len(set(segment_starts))),
             "class_counts": {name: int(c) for name, c in zip(STAGE_NAMES, counts)},
         }
         print(f"Successfully saved subject {sub_id} ({len(x)} seconds from {len(xs)} night(s)) to {out_path}")
