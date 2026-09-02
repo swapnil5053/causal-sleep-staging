@@ -67,6 +67,48 @@ The dataset loader reads the same metadata from each `.npz` and refuses to build
 directory that mixes normalization regimes, so a partially reprocessed directory fails loudly at
 the start of training rather than silently producing an unreportable number.
 
+### Separating the partition from the initialization
+
+`train.seed` seeds the weight initialization and, historically, also the subject shuffle that
+decides the folds. Seeds 42, 43 and 44 therefore produced three different partitions rather than
+three initializations of one partition, and the two effects cannot be separated in the archived
+runs: they are three repeats of five-fold cross-validation over fifteen distinct partitions.
+Analyses of that data should account for the train-set overlap between repeats rather than
+treating the fifteen cells as fifteen independent folds.
+
+`data.split_seed` pins the partition independently of `train.seed`:
+
+```yaml
+data:
+  split_seed: 42     # fold layout; hold fixed to vary only the initialization
+train:
+  seed: 43           # weight initialization
+```
+
+Omitting `split_seed` uses `train.seed`, so every configuration written before this option
+existed produces exactly the splits it always did. Each fold's `split_fold_N.yaml` now records
+both seeds alongside the subject lists, so the partition behind a result is recoverable from the
+run itself. Setting one `split_seed` across a seed sweep gives the matched design the archived
+runs do not have.
+
+### Continuity of the stored signal
+
+Preprocessing drops unscored epochs and concatenates a subject's two nights, so a stored array is
+a sequence of discontinuous stretches rather than one recording. Each `.npz` now carries
+`segment_starts`, the second indices where a fresh stretch begins, and the manifest reports how
+many segments each subject has.
+
+Two loader options use it, both off by default so the archived windowing is unchanged:
+
+| Option | Effect |
+|---|---|
+| `data.respect_boundaries` | Drop context windows that span a night join or an unscored-epoch gap |
+| `data.cover_tail` | Add a final window flush with the end of the recording instead of discarding the trailing `(len - seq_len) % stride` seconds |
+
+`respect_boundaries` needs `segment_starts`, so it raises rather than silently doing nothing on
+directories processed before that metadata existed. Re-run preprocessing into a clean directory
+to use it.
+
 ## 1. Environment
 
 Python 3.10 or newer is required. Create an isolated environment and install the pinned minimum
@@ -220,6 +262,30 @@ Do not delete or overwrite curated files under `results/`.
 The per-second metrics compare predictions against 30-second expert labels replicated to each
 second. The 30-second metrics majority-vote each group of 30 predictions for comparison with
 conventional epoch-level systems.
+
+### Saved predictions
+
+Each evaluation also writes `fold_N_predictions.npz` holding the per-second subject id, expert
+label, prediction and logits. Smoothing sweeps, per-subject confidence intervals, calibration and
+class-prior correction all read from it, so none of them require another pass over a checkpoint.
+Archive it with the run; `--no_save_predictions` skips it.
+
+### Streaming evaluation
+
+The default evaluation tiles each recording with non-overlapping windows, so the opening seconds
+of every window are predicted from a partly zero-padded history. A deployment does not restart
+its buffer that way. `--stream_stride N` recomputes every `N` seconds against a full context
+window and keeps only the freshest `N` predictions, so every second after the first window is
+decided with at least `sequence_length - N` seconds of real history:
+
+```bash
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0 --stream_stride 30
+```
+
+Cost scales as `sequence_length / N` forward passes. Results are written under a `_streamingN`
+suffix (`test_metrics_summary_streaming30.csv` and so on) so the two modes sit side by side and
+neither overwrites the archived artifacts. With `--stream_stride` equal to `sequence_length` the
+two modes coincide, apart from the trailing seconds that tiling drops.
 
 ## 7. Latency, smoothing, statistics, and figures
 
