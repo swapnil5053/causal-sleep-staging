@@ -16,15 +16,18 @@ write their own `processed_dir`, log directory and checkpoint directory, so noth
 archived is touched. They apply a trailing 30-second z-score at every raw sample; the statistic
 at time `t` contains only samples at or before `t` and resets at each recording.
 
-| Config | Seed | Causal | Normalization |
-|---|---:|:---:|---|
-| `configs/sleep78_streaming_causal.yaml` | 42 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal.yaml` | 42 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_s43.yaml` | 43 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_s44.yaml` | 44 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_w120.yaml` | 42 | yes | trailing 120 s (window robustness, optional) |
+| Config | Seed | Split seed | Causal | Normalization |
+|---|---:|---:|:---:|---|
+| `configs/sleep78_streaming_causal.yaml` | 42 | 42 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal.yaml` | 42 | 42 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_s43.yaml` | 43 | 42 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | 42 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_s44.yaml` | 44 | 42 | yes | trailing 30 s |
+| `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | 42 | no | trailing 30 s |
+| `configs/sleep78_streaming_causal_w120.yaml` | 42 | 42 | yes | trailing 120 s (window robustness, optional) |
+
+The split seed is now pinned across every row, so the seed column varies initialisation alone.
+The archived runs predate that separation and used the seed for both; see section 5.
 
 Order of work:
 
@@ -33,6 +36,7 @@ Order of work:
 python -m unittest discover -s tests -v
 python smoke_test.py configs/sleep78_streaming_causal.yaml
 python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
+python scripts/streaming_demo.py --synthetic --verify
 
 # 1. preprocessing, once, shared by both arms
 python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
@@ -158,6 +162,13 @@ integrity, and — in `tests/test_end_to_end_causality.py` — causality of the 
 normalization-plus-model path, including that the offline arrays equal the online
 sample-at-a-time filter and that the non-causal arm genuinely does leak.
 
+Three further suites cover the review-facing claims: `tests/test_streaming_demo.py` (the
+sample-at-a-time front end reproduces both the offline arrays and `evaluate.py`'s labels, and
+a future sample cannot change an emitted second), `tests/test_seed_separation.py` (every
+config pins one subject partition, and `split_seed` still falls back to `seed`), and
+`tests/test_subject_metrics.py` (per-subject attribution is exact, and the paired test refuses
+rows that are not actually paired).
+
 For a run-specific, archivable version of the same proof against real weights:
 
 ```bash
@@ -194,6 +205,35 @@ test fold is not used for parameter updates, early stopping, or checkpoint selec
 To reproduce another experiment, change only the configuration path. Do not manually edit a
 shared configuration during a run.
 
+### Seeds: initialisation and partition are separate
+
+`train.seed` seeds weight initialisation, shuffling and dropout. `train.split_seed` seeds the
+subject partition used for cross-validation. Every configuration in this repository pins
+`split_seed: 42`, so a run under a different `seed` is a genuine replication: the same folds,
+the same held-out subjects, a different initialisation. Both values are recorded in each fold's
+`split_fold_<N>.yaml` alongside the subject lists.
+
+`split_seed` falls back to `seed` when a configuration omits it, which is the behaviour every
+archived run was produced under. That matters when reproducing one:
+
+| Run | Reproduce with |
+|---|---|
+| any seed-42 run | the config unchanged; `split_seed` and `seed` are both 42 |
+| `*_s43` / `*_s44` archived runs | `--split_seed 43` / `--split_seed 44`, restoring the partition those runs actually used |
+
+```bash
+# reproduce the archived seed-43 streaming run exactly, partition included
+python -m src.train.train --config configs/sleep78_streaming_causal_s43.yaml \
+  --fold -1 --split_seed 43
+```
+
+Without that flag the seed-43 and seed-44 configurations now produce the seed-42 partition,
+which is the intended behaviour going forward and *not* what the archived results were computed
+on. This was a real defect found by code review: because one seed drove both jobs, the
+three-seed sweeps varied the subject partition as well as the initialisation, so the fifteen
+per-fold measurements are not fifteen replications of one experiment. Reporting them pooled
+requires a correction for the reused subject pool; see section 7.
+
 ## 6. Held-out evaluation
 
 Evaluation is run once per fold. On Bash-compatible shells:
@@ -216,6 +256,13 @@ The evaluator produces a classification report for each fold and appends one row
 `test_metrics_summary.csv`. Start with a new log directory or remove a disposable duplicate
 summary before repeating evaluation; the evaluator appends rather than replacing existing rows.
 Do not delete or overwrite curated files under `results/`.
+
+It also writes one row per held-out subject to `fold_<N>_subject_metrics.csv` and appends the
+same rows to a run-level `test_subject_metrics.csv`: accuracy, kappa, macro F1 and per-class F1
+for each night, with the number of scored seconds. A subject appears in the test set of exactly
+one fold, so a five-fold sweep over 78 subjects yields 78 per-subject scores. A night the
+technician scored as a single stage has no defined kappa; that field is left empty rather than
+written as zero.
 
 The per-second metrics compare predictions against 30-second expert labels replicated to each
 second. The 30-second metrics majority-vote each group of 30 predictions for comparison with
@@ -269,15 +316,55 @@ python scripts/pool_seeds.py \
 It refuses to run if a summary CSV lists a fold twice or if the two arms cover different folds,
 so a half-finished sweep cannot be reported as a complete one.
 
+Pooling folds across seeds is not the same as having independent measurements: the same 78
+subjects are reused each time. Pairing by subject avoids the problem instead of correcting for
+it, because each subject is held out in exactly one fold:
+
+```bash
+python scripts/subject_paired_test.py \
+  --pair "Streaming-78 seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42" \
+  --out results/statistics_streaming_by_subject.md
+```
+
+It refuses to run when the two arms cover different subjects, when a subject is listed twice,
+or when a subject sits in different folds in the two arms — the last of which means the arms
+were trained on different partitions and the comparison is not controlled. One seed at a time:
+two seeds sharing a partition score the same subject twice, and those differences are not
+independent of each other.
+
+Demonstrate the deployed path, and check it matches the evaluation it is reported against:
+
+```bash
+python scripts/streaming_demo.py --synthetic --verify        # no data needed
+python scripts/streaming_demo.py \
+  --edf data/raw/SC4001E0-PSG.edf --hypnogram data/raw/SC4001EC-Hypnogram.edf \
+  --config configs/sleep78_streaming_causal.yaml \
+  --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth \
+  --minutes 6 --verify
+```
+
+`--verify` asserts that labels emitted sample-at-a-time are identical to those
+`src/eval/evaluate.py` produces over the same recording, and exits non-zero otherwise. The
+equivalence does not depend on the weights, so it can be checked before a checkpoint exists.
+`--mode rolling` emits from a trailing context instead of a fixed window; it deliberately does
+*not* match `evaluate.py`, and the difference is the window-boundary artefact noted in the
+limitations.
+
 Generate figures (requires the processed data and referenced checkpoint for the hypnogram panel):
 
 ```bash
 python make_figures.py \
-  --config configs/sleep78_causal.yaml \
-  --run results/sleep78_causal \
-  --checkpoint checkpoints_78causal/best_model_fold_0.pth \
+  --config configs/sleep78_streaming_causal.yaml \
+  --run results/sleep78_streaming_causal \
+  --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth \
   --out figures
 ```
+
+Those are also the defaults, so bare `python make_figures.py` reproduces the archived figures.
+The confusion and ablation panels render without a checkpoint; only the hypnogram needs one,
+and it is skipped with a message rather than written blank. Passing
+`--run results/sleep78_causal --config configs/sleep78_causal.yaml` regenerates the older
+epoch-normalised figures, which no longer match the reported numbers.
 
 Validate archived CSV structure without changing any files:
 
@@ -314,6 +401,10 @@ checkpoints are archived under `results/`.
 The streaming rows use trailing-window normalization and `data/processed78_streaming`. Every
 other row uses the epoch z-score and `data/processed78`. The two regimes are never mixed in one
 processed directory.
+
+Every archived run in this table was produced before `train.split_seed` existed, so each used
+its own seed for the subject partition as well as for initialisation. Reproducing a `_s43` or
+`_s44` row exactly therefore needs `--split_seed 43` or `--split_seed 44`; see section 5.
 
 `configs/sleep78_ctx300.yaml` defines a 300-second causal experiment, but this repository does
 not contain a matching curated result directory. `results/trimmed/` and

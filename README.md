@@ -3,13 +3,17 @@
 Sleep stage classification from a single EEG channel that predicts a stage every second using
 only past signal.
 
-Most sleep staging models score 30-second epochs and read the whole night at once, so they
-cannot run live. This one is strictly causal: the prediction at time *t* depends only on input
-up to *t*. It has 30,757 parameters and runs at 0.026 ms per second of EEG on an Intel Core
-i9-14900HX CPU, so it can keep up with a live stream on a wearable.
+Dense, high-frequency staging is not itself new — U-Sleep evaluated output at up to 7,680
+stages per minute back in 2021. What is different here is that the *whole pipeline* is causal,
+normalisation included: the prediction at time *t* is a function of the raw signal up to *t*
+alone, and that is verified rather than asserted. The model has 30,757 parameters and runs at
+0.026 ms per second of EEG on an Intel Core i9-14900HX CPU, so it can keep up with a live
+stream on a wearable.
 
 The repository also contains a controlled measurement of what that constraint costs: the same
-architecture, parameter for parameter, trained with and without access to future signal.
+architecture, parameter for parameter, trained with and without access to future signal. See
+[docs/framing_usleep.md](docs/framing_usleep.md) for how this claim is positioned against
+U-Sleep and U-Time.
 
 ## Results
 
@@ -131,8 +135,27 @@ Evaluation reports metrics twice: per-second, and aggregated to 30-second epochs
 vote. The second set is what compares like for like against published 30-second results.
 
 Output lands in `logs/`: per-epoch curves in `fold_N_metrics.csv`, held-out test reports in
-`fold_N_test_report.txt`, and one row per fold in `test_metrics_summary.csv`. Checkpoints and the
-subject splits used for each fold go to `checkpoints/`.
+`fold_N_test_report.txt`, one row per fold in `test_metrics_summary.csv`, and one row per
+held-out subject in `fold_N_subject_metrics.csv` and `test_subject_metrics.csv`. Checkpoints
+and the subject splits used for each fold go to `checkpoints/`.
+
+## Streaming
+
+To watch the deployed path run, rather than reading that it exists:
+
+```bash
+python scripts/streaming_demo.py --synthetic --verify          # needs no data at all
+python scripts/streaming_demo.py --edf data/raw/SC4001E0-PSG.edf \
+  --hypnogram data/raw/SC4001EC-Hypnogram.edf \
+  --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth
+```
+
+Raw samples go in one at a time through `StreamingZScore`, and one stage comes out per second.
+`--verify` additionally re-runs the whole recording and asserts the labels are identical to
+those `src/eval/evaluate.py` produces, so the reported kappa is the number this path gives and
+not one obtained by batching a night. Without `--checkpoint` the weights are random: the labels
+are then meaningless, but causality, throughput and the equivalence check do not depend on the
+weights and still hold.
 
 ## Experiments
 
@@ -206,7 +229,11 @@ src/
 configs/                  default plus the ablation and streaming configs
 results/                  archived runs, see RESULTS.md
 scripts/verify_causality.py   end-to-end causality proof, writes a report
+scripts/streaming_demo.py     sample-at-a-time staging, and proof it matches evaluate.py
+scripts/subject_paired_test.py  causality cost paired by subject rather than by fold
+scripts/pool_seeds.py         pooled paired test across seeds
 scripts/validate_results.py   structural check on archived result CSVs
+docs/framing_usleep.md        how the contribution is positioned against U-Sleep
 smoke_test.py             fast pre-run sanity check
 tests/                    unit tests, including end-to-end causality
 ```
@@ -216,6 +243,10 @@ tests/                    unit tests, including end-to-end causality
 - `sequence_length` (60) is the context in seconds. Longer gives the attention more history and
   is the most useful knob if kappa is low. Must be a multiple of 30 for the 30-second reporting.
 - `causal` (true). Set to false only for the causality ablation.
+- `seed` (42) controls weight initialisation, shuffling and dropout. `split_seed` (42) controls
+  the cross-validation subject partition, and is separate on purpose: a repeat under a new
+  `seed` is only a replication if it keeps the same folds. Every config now pins `split_seed`
+  to 42 so seed variants differ in initialisation alone.
 - `wake_trim_minutes` (30). Set to `null` to keep the full recordings.
 - `use_weighted_sampler` (false). Focal loss already handles the class imbalance; enabling both
   makes the model over-predict N1 badly (precision drops to 0.12-0.20).
@@ -232,6 +263,16 @@ tests/                    unit tests, including end-to-end causality
   0.537 to 0.711 across the five folds.
 - Supervision is 30-second labels replicated to 1 Hz, not genuine per-second scoring.
 - Validation peaks early and the model overfits past roughly epoch 10.
+- The archived seed-43 and seed-44 runs were produced before `split_seed` was separated from
+  `seed`, so they use different subject partitions rather than the same folds under a new
+  initialisation. The configs now fix this going forward; the archived numbers are what they
+  are, and pooling them needs a correction for the reused subject pool.
+- Evaluation uses non-overlapping windows, so the causal model restarts with almost no context
+  at each window boundary while the non-causal model sees the whole window. Part of the measured
+  cost is therefore a boundary artefact. `scripts/streaming_demo.py --mode rolling` shows the
+  warm-started alternative; a warm-started evaluation is scoped and not yet run.
+- The 30-second normalisation window is the only one tested. `sleep78_streaming_causal_w120`
+  exists as the ablation config and has not been run.
 
 ## Data and citation
 
