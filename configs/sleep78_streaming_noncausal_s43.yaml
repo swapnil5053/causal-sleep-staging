@@ -42,3 +42,6 @@ train:
   num_folds: 5
   checkpoint_dir: "checkpoints_78streaming_noncausal_s43"
   seed: 43
+  # Subject partition for cross-validation. Held at 42 across every seed variant so
+  # that `seed` changes initialisation only. See REPRODUCIBILITY.md section 5.
+  split_seed: 42

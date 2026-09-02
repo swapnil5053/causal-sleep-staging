@@ -29,6 +29,27 @@ def get_config(config_path):
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
+def resolve_seeds(config, args=None):
+    """Return ``(init_seed, split_seed)`` for a run.
+
+    ``train.seed`` seeds weight initialisation, shuffling and dropout. ``train.split_seed``
+    seeds the cross-validation subject partition, and is deliberately a separate knob: a
+    repeat under a new ``seed`` is only a replication if it keeps the same folds, otherwise
+    the partition moves too and the two runs are not paired measurements of anything.
+
+    ``split_seed`` falls back to ``seed`` when a config does not set it, which is exactly
+    the behaviour every archived run was produced under.
+    """
+    train_cfg = config['train']
+    init_seed = train_cfg['seed']
+    split_seed = train_cfg.get('split_seed', init_seed)
+    if args is not None:
+        if getattr(args, 'seed', None) is not None:
+            init_seed = args.seed
+        if getattr(args, 'split_seed', None) is not None:
+            split_seed = args.split_seed
+    return int(init_seed), int(split_seed)
+
 def train_epoch(model, dataloader, criterion, optimizer, device):
     """Train the model for one epoch."""
     model.train()
@@ -104,9 +125,11 @@ def run_fold(fold_idx, config, device, args):
     print(f"               STARTING FOLD {fold_idx}")
     print(f"==================================================")
 
+    init_seed, split_seed = resolve_seeds(config, args)
+
     # Re-seed per fold so that `--fold 3` on its own reproduces fold 3 of a `--fold -1`
     # sweep. Without this, a fold's initialisation depends on how many folds ran before it.
-    set_seed(config['train']['seed'] + fold_idx)
+    set_seed(init_seed + fold_idx)
 
     processed_dir = args.processed_dir or config['data']['processed_dir']
     checkpoint_dir = args.checkpoint_dir or config['train']['checkpoint_dir']
@@ -123,9 +146,10 @@ def run_fold(fold_idx, config, device, args):
         subject_ids, 
         num_folds=config['train']['num_folds'], 
         fold_idx=fold_idx, 
-        seed=config['train']['seed']
+        seed=split_seed
     )
     
+    print(f"Seeds: init={init_seed} (+{fold_idx} for this fold), split={split_seed}")
     print(f"Train subjects: {train_subs}")
     print(f"Val subjects: {val_subs}")
     print(f"Test subjects (held-out for evaluate.py): {test_subs}")
@@ -136,7 +160,11 @@ def run_fold(fold_idx, config, device, args):
         yaml.safe_dump({
             "train_subjects": train_subs,
             "val_subjects": val_subs,
-            "test_subjects": test_subs
+            "test_subjects": test_subs,
+            # Recorded so a fold can be traced to the partition that produced it, and so a
+            # later run can be checked for using the same folds rather than assumed to.
+            "split_seed": split_seed,
+            "init_seed": init_seed + fold_idx
         }, sf)
     
     # Create datasets
@@ -295,10 +323,19 @@ def main():
     parser.add_argument("--processed_dir", type=str, default=None, help="Override processed data directory.")
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="Override checkpoint directory.")
     parser.add_argument("--log_dir", type=str, default=None, help="Override directory for metric CSVs.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override train.seed (weight initialisation, shuffling, dropout).")
+    parser.add_argument("--split_seed", type=int, default=None,
+                        help="Override train.split_seed (the cross-validation subject partition). "
+                             "Pass the run's seed to reproduce an archived run made before "
+                             "split_seed was separated out.")
     args = parser.parse_args()
     
     config = get_config(args.config)
-    set_seed(config['train']['seed'])
+    init_seed, split_seed = resolve_seeds(config, args)
+    set_seed(init_seed)
+    if split_seed != init_seed:
+        print(f"Subject partition seed {split_seed} is independent of initialisation seed {init_seed}.")
     
     # Auto-detect device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
