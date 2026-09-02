@@ -229,6 +229,7 @@ src/
 configs/                  default plus the ablation and streaming configs
 results/                  archived runs, see RESULTS.md
 scripts/verify_causality.py   end-to-end causality proof, writes a report
+scripts/recover_splits.py     rebuild archived split files from the fold reports
 scripts/streaming_demo.py     sample-at-a-time staging, and proof it matches evaluate.py
 scripts/subject_paired_test.py  causality cost paired by subject rather than by fold
 scripts/pool_seeds.py         pooled paired test across seeds

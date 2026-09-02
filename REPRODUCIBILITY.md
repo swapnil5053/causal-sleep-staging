@@ -54,6 +54,24 @@ before spending the rest of the compute.
 Each fold's checkpoint directory records the subject split, so folds may be run individually or
 with `--fold -1`; training re-seeds per fold, and both give identical results.
 
+Training writes `split_fold_<N>.yaml` to `checkpoint_dir`, not `log_dir`, so the curated
+directories under `results/` did not originally receive them and the checkpoints they sat
+beside are gitignored. They have been recovered: every `fold_<N>_test_report.txt` records its
+held-out subjects, and `get_cv_splits` is deterministic, so the full partition regenerates from
+the run's seed.
+
+```bash
+python scripts/recover_splits.py --check     # verify against the archived reports
+python scripts/recover_splits.py             # write the yaml files
+```
+
+All six archived streaming runs reproduce every fold's test set exactly, and the recovered
+files are committed alongside their reports. Nothing is written unless the reconstruction
+matches, and an existing file is never overwritten without `--force`: a plausible-looking split
+that is not the one the model was trained on would be worse than no file at all. Each file
+records the seed that produced the partition, which for these runs is the training seed because
+they predate `train.split_seed`.
+
 `scripts/verify_causality.py` has been run against the trained causal checkpoint and its report
 is archived at `results/causality_verification.md`. Re-run it after any change to normalization,
 padding or masking, and archive the new report with the run; the end-to-end causal claim rests
@@ -161,6 +179,10 @@ The tests check tensor dimensions, parameter count, model-layer causality, subje
 integrity, and — in `tests/test_end_to_end_causality.py` — causality of the composed
 normalization-plus-model path, including that the offline arrays equal the online
 sample-at-a-time filter and that the non-causal arm genuinely does leak.
+
+`tests/test_recover_splits.py` additionally asserts that every archived streaming run still
+reproduces its own partition, so a change to `get_cv_splits` cannot silently invalidate the
+recovered split files.
 
 Three further suites cover the review-facing claims: `tests/test_streaming_demo.py` (the
 sample-at-a-time front end reproduces both the offline arrays and `evaluate.py`'s labels, and
