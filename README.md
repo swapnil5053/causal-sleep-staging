@@ -230,6 +230,10 @@ configs/                  default plus the ablation and streaming configs
 results/                  archived runs, see RESULTS.md
 scripts/verify_causality.py   end-to-end causality proof, writes a report
 scripts/recover_splits.py     rebuild archived split files from the fold reports
+scripts/warm_start_eval.py    scores cold and warm on identical seconds, dumps predictions
+scripts/calibration.py        reliability, ECE and Brier from a prediction dump
+scripts/transition_response.py  how fast the model follows a stage change
+docs/paper_report_template.md   required write-up before any method change
 scripts/streaming_demo.py     sample-at-a-time staging, and proof it matches evaluate.py
 scripts/subject_paired_test.py  causality cost paired by subject rather than by fold
 scripts/pool_seeds.py         pooled paired test across seeds
@@ -270,8 +274,10 @@ tests/                    unit tests, including end-to-end causality
   are, and pooling them needs a correction for the reused subject pool.
 - Evaluation uses non-overlapping windows, so the causal model restarts with almost no context
   at each window boundary while the non-causal model sees the whole window. Part of the measured
-  cost is therefore a boundary artefact. `scripts/streaming_demo.py --mode rolling` shows the
-  warm-started alternative; a warm-started evaluation is scoped and not yet run.
+  cost is therefore a boundary artefact. `scripts/warm_start_eval.py` measures how much, scoring
+  the same seconds cold and warm; it needs a checkpoint to produce numbers.
+- Supervision is 30-second epoch labels, so a scored stage transition is only ever located to
+  the nearest epoch boundary. Response-time results are bounded by that, not by the model.
 - The 30-second normalisation window is the only one tested. `sleep78_streaming_causal_w120`
   exists as the ablation config and has not been run.
 

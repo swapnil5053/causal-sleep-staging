@@ -155,7 +155,22 @@ named `subject_<ID>.npz` and contains:
 - `x`: normalized EEG, `float32`, shape `(number_of_seconds, 100)`;
 - `y`: integer labels, `int64`, shape `(number_of_seconds,)`;
 - `normalization_method`, `normalization_window_seconds`, `normalization_eps`,
-  `wake_trim_minutes`, `resample_rate`: the preprocessing that produced the file.
+  `wake_trim_minutes`, `resample_rate`: the preprocessing that produced the file;
+- `segment_starts`: second offsets at which the recording is discontinuous.
+
+Unscored epochs are dropped and a subject's two nights are concatenated with the daytime
+between them removed, so consecutive rows of `x` are not always consecutive in time.
+`segment_starts` records every such join, and `SleepDataset` refuses windows that span one - a
+window covering a join asks the model to read across a jump that never happened. Files written
+before this metadata existed carry none and are read as a single continuous recording, so
+archived runs reproduce exactly; the dataset reports how many such subjects it saw. Pass
+`respect_segments=False` to restore the old behaviour deliberately.
+
+Normalization resets at the start of every recording, including between a subject's two nights.
+That is intentional - it is what a device does when it is switched on - and it means the first
+window of each night runs on a partial trailing statistic. The output stays bounded:
+`scripts/verify_causality.py` checks that no normalized value exceeds `sqrt(window - 1)`, so the
+cold start cannot produce an outlier, only a slightly noisier statistic.
 
 Before training, record the number of raw PSG files, paired hypnograms, processed subjects, and
 any skipped recordings. Never combine processed files created with different preprocessing
@@ -179,6 +194,12 @@ The tests check tensor dimensions, parameter count, model-layer causality, subje
 integrity, and — in `tests/test_end_to_end_causality.py` — causality of the composed
 normalization-plus-model path, including that the offline arrays equal the online
 sample-at-a-time filter and that the non-causal arm genuinely does leak.
+
+`tests/test_segment_boundaries.py` covers discontinuity handling, including the guarantee that
+a file without segment metadata loads exactly as it did before. `tests/test_warm_start_eval.py`
+pins the second-level bookkeeping that makes warm and cold comparable, and
+`tests/test_analysis_scripts.py` checks the calibration and response-time arithmetic against
+hand-constructed cases.
 
 `tests/test_recover_splits.py` additionally asserts that every archived streaming run still
 reproduces its own partition, so a change to `get_cv_splits` cannot silently invalidate the
@@ -353,6 +374,40 @@ or when a subject sits in different folds in the two arms — the last of which 
 were trained on different partitions and the comparison is not controlled. One seed at a time:
 two seeds sharing a partition score the same subject twice, and those differences are not
 independent of each other.
+
+### Warm-started evaluation
+
+Held-out evaluation scores non-overlapping windows, so at position 0 of each window the causal
+model has one second of history while the non-causal model attends over the rest of the window.
+Roughly the first quarter of every window is context-starved for one arm only, and never would
+be in a streaming deployment holding a rolling buffer. Part of the measured causality cost is
+therefore an artefact of the measurement.
+
+```bash
+python scripts/warm_start_eval.py   --config configs/sleep78_streaming_causal.yaml   --checkpoint_dir checkpoints_78streaming_causal_s42 --fold 0   --save_predictions logs_warm/fold_0_predictions.npz   --out results/warm_start_fold_0.md
+```
+
+It scores the same seconds twice - cold, exactly as `evaluate.py` does, and warm, keeping only
+the last `--stride` predictions of overlapping windows so every scored second carries at least
+`sequence_length - stride` seconds of context. The two are compared over an identical set of
+seconds, so the difference is context and nothing else, and the archived cold number over all
+seconds is reported alongside so nothing is quietly restated. `src/eval/evaluate.py` is not
+modified, so the archived numbers cannot move.
+
+`--save_predictions` writes per-second probabilities for both scorings, which the two analyses
+below read without another forward pass:
+
+```bash
+python scripts/calibration.py --predictions logs_warm/fold_0_predictions.npz   --out results/calibration_fold_0.md --figure figures/fig_calibration.png
+python scripts/transition_response.py --predictions logs_warm/fold_0_predictions.npz   --out results/transition_response_fold_0.md
+```
+
+`calibration.py` reports expected and maximum calibration error, a reliability table and the
+Brier score, per stage as well as overall - what a triage system needs in order to know when it
+is unsure. `transition_response.py` measures how many seconds after a scored stage change the
+model follows, against the same predictions read at 30-second epoch resolution, which is the
+measured answer to what per-second output buys. Its comparison is paired over transitions both
+series detected, because the detection rates differ.
 
 Demonstrate the deployed path, and check it matches the evaluation it is reported against:
 
