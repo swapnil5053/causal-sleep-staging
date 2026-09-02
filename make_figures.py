@@ -1,9 +1,14 @@
 """Generate the paper/report figures from artifacts already in results/.
 
-    python make_figures.py                          # defaults to the Sleep-EDF-78 causal run
+    python make_figures.py                          # defaults to the streaming causal run
     python make_figures.py --run results/run_b_context
-    python make_figures.py --checkpoint checkpoints_78causal/best_model_fold_0.pth \
-                           --subject data/processed78/subject_19.npz
+    python make_figures.py --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth \
+                           --subject data/processed78_streaming/subject_19.npz
+
+The defaults name the end-to-end causal streaming run, because that is the experiment the
+report presents. Pointing them at `results/sleep78_causal` and `configs/sleep78_causal.yaml`
+reproduces the earlier figures, which came from the epoch-normalised pipeline and no longer
+match the numbers being reported.
 
 Produces, in figures/:
   fig_confusion.png   normalised confusion matrix, summed over folds
@@ -186,12 +191,13 @@ def figure_hypnogram(checkpoint, subject_npz, config_path, out_dir, hours=8):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", default="results/sleep78_causal",
+    ap.add_argument("--run", default="results/sleep78_streaming_causal",
                     help="run directory holding fold_*_test_report.txt")
-    ap.add_argument("--checkpoint", default="checkpoints_78causal/best_model_fold_0.pth")
+    ap.add_argument("--checkpoint",
+                    default="checkpoints_78streaming_causal_s42/best_model_fold_0.pth")
     ap.add_argument("--subject", default=None,
                     help="a .npz from the run's held-out test set")
-    ap.add_argument("--config", default="configs/sleep78_causal.yaml")
+    ap.add_argument("--config", default="configs/sleep78_streaming_causal.yaml")
     ap.add_argument("--out", default="figures")
     ap.add_argument("--hours", type=float, default=8)
     args = ap.parse_args()
