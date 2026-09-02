@@ -11,11 +11,16 @@ uses only past predictions and preserves the real-time property.
     python sweep_smoothing.py --config configs/sleep78_causal.yaml
     python sweep_smoothing.py --config configs/run_b_context.yaml \
         --checkpoint_dir checkpoints_runB --folds 0 1 2 3 4
+    python sweep_smoothing.py --predictions logs_78streaming_causal_s42
 
-Inference runs once per fold; the sweep is then almost free. Writes results/smoothing.md.
+Inference runs once per fold; the sweep is then almost free. With `--predictions` the
+inference does not run at all: the sweep reads the per-second predictions evaluation
+already saved, so it needs neither the checkpoints nor the processed data. Writes
+results/smoothing.md.
 """
 import argparse
 import os
+import sys
 
 import numpy as np
 import yaml
@@ -63,16 +68,8 @@ def predict_subject(model, torch, x, L):
     return (np.concatenate(preds) if preds else np.array([], dtype=int)), n
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/sleep78_causal.yaml")
-    ap.add_argument("--checkpoint_dir", default=None)
-    ap.add_argument("--folds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
-    ap.add_argument("--windows", type=int, nargs="+",
-                    default=[1, 5, 10, 15, 30, 45, 60, 90, 120])
-    ap.add_argument("--out", default="results/smoothing.md")
-    args = ap.parse_args()
-
+def load_from_checkpoints(args):
+    """Re-run inference from the per-fold checkpoints. The original path."""
     import torch
     from src.model.full_model import SleepStagingModel
 
@@ -109,6 +106,57 @@ def main():
         per_fold[fold] = pairs
         print(f"  fold {fold}: {len(pairs)} test recordings, "
               f"{sum(len(p) for p, _ in pairs):,} seconds")
+    return per_fold
+
+
+def load_from_predictions(paths, pattern):
+    """Read archived predictions instead of re-running inference.
+
+    Evaluation now saves exactly what this sweep used to recompute, so once a run has been
+    evaluated the checkpoints, the processed data and a GPU are all unnecessary here.
+    Predictions stay grouped by subject so the mode filter never smooths across a
+    recording boundary, which is the property the original path was careful about too.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from scripts.analyze_predictions import load_folds
+
+    per_fold = {}
+    for entry in load_folds(paths, pattern):
+        pairs = []
+        for code in np.unique(entry["subject_code"]):
+            mask = entry["subject_code"] == code
+            pairs.append((entry["y_pred"][mask], entry["y_true"][mask]))
+        key = entry["fold"] if entry["fold"] >= 0 else len(per_fold)
+        while key in per_fold:            # two files can carry the same fold index
+            key += 1000
+        per_fold[key] = pairs
+        print(f"  {os.path.basename(entry['path'])}: {len(pairs)} recordings, "
+              f"{sum(len(p) for p, _ in pairs):,} seconds")
+    return per_fold
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", default="configs/sleep78_causal.yaml")
+    ap.add_argument("--checkpoint_dir", default=None)
+    ap.add_argument("--folds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
+    ap.add_argument("--windows", type=int, nargs="+",
+                    default=[1, 5, 10, 15, 30, 45, 60, 90, 120])
+    ap.add_argument("--predictions", nargs="+", default=None,
+                    help="Sweep archived fold_N_predictions.npz files, or log directories "
+                         "holding them, instead of re-running inference from checkpoints.")
+    ap.add_argument("--pattern", default="fold_*_predictions.npz",
+                    help="Glob used inside a --predictions directory.")
+    ap.add_argument("--out", default="results/smoothing.md")
+    args = ap.parse_args()
+
+    if args.predictions:
+        source = "archived predictions: " + ", ".join(f"`{p}`" for p in args.predictions)
+        per_fold = load_from_predictions(args.predictions, args.pattern)
+    else:
+        source = f"`{args.config}`"
+        per_fold = load_from_checkpoints(args)
 
     if not per_fold:
         print("nothing to evaluate")
@@ -143,7 +191,7 @@ def main():
     a("than a scored hypnogram. A trailing-window mode filter is applied to the prediction")
     a("stream: the label at second t is the most common prediction over [t-w+1, t]. It uses only")
     a("past predictions, so the real-time property is preserved, and it costs nothing to run.\n")
-    a(f"Config: `{args.config}`, {len(per_fold)} folds, smoothing applied within each recording.\n")
+    a(f"Source: {source}, {len(per_fold)} folds, smoothing applied within each recording.\n")
     a("| Window (s) | Accuracy | Kappa | Macro F1 | N1 F1 | Stage changes/hour |")
     a("|---|---|---|---|---|---|")
     for r in rows:
