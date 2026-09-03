@@ -17,14 +17,20 @@ Random (untrained) weights are used, since latency does not depend on trained va
 
 import argparse
 import os
+import sys
 import time
 
 import numpy as np
 import torch
 import yaml
 
-from src.data.normalization import StreamingZScore
-from src.model.full_model import SleepStagingModel
+# Run as `python scripts/latency_remeasurement.py` and sys.path[0] is scripts/, not the
+# repository root, so `src` is not importable. Every other script in this directory does
+# the same insert.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.data.normalization import StreamingZScore  # noqa: E402
+from src.model.full_model import SleepStagingModel  # noqa: E402
 
 CONFIGS = {
     "C0 (60s context)": "configs/default.yaml",
