@@ -530,6 +530,91 @@ them: one `best_model_fold_0.pth` from a streaming run, and one raw `*-PSG.edf` 
 `*-Hypnogram.edf` pair (or a single `subject_XX.npz`). Those unblock the hypnogram figure
 and the raw-path demo immediately, before the full sweep finishes.
 
+### Will the retrain improve the numbers?
+
+Mostly no, and it is worth being clear about that before spending the GPU time.
+
+The large gain already happened: closing the preprocessing leak took κ from 0.634 to
+**0.665**, and that result is already archived. Retraining does not change the model — same
+architecture, same 30,757 parameters, same data, same hyperparameters. It is a re-roll of
+the same dice.
+
+| What the sweep buys | Effect on κ |
+|---|---|
+| Matched folds across seeds | none — better statistics, same numbers |
+| Saved predictions | none — unlocks items 9–12 above |
+| Streaming evaluation | the one plausible real gain, perhaps +0.005 to +0.02 |
+| Smoothing, redone leak-free | about +0.009, measured on the old pipeline |
+| Class-prior correction | small, unknown |
+
+A realistic landing zone is **0.665 → roughly 0.68**. DeepSleepNet is 0.754 and AttnSleep
+about 0.75; that gap does not close by retraining, and no number of re-runs will close it.
+Closing it needs more capacity or more data, which is a different paper.
+
+Expect some figures to move *down*. Pinning `split_seed: 42` means all three seeds share one
+partition instead of averaging over three (0.6634 / 0.6649 / 0.6664), and
+`respect_boundaries` removes a few percent of the training windows. Both are the correct
+choices; report the result either way.
+
+The contribution is the measurement — what causality costs, and that it falls on REM — not
+the accuracy. Section 0 is why chasing the baselines is the losing framing.
+
+### Full roadmap, with status
+
+Everything known to be outstanding, in one table, so this branch is still useful months
+from now. "Ready" means the code is here and tested and only needs data or compute.
+
+| # | Task | Status | Blocked on | Effort |
+|---|---|---|---|---|
+| 1 | Separate `split_seed` from the initialisation seed | **done** | — | — |
+| 2 | Nadeau–Bengio corrected pooled test | **done** | — | — |
+| 3 | Recover and archive the split files | **done** (30 files) | — | — |
+| 4 | Save per-second predictions from evaluation | **done** | — | — |
+| 5 | Refuse windows that cross a night join or epoch gap | **done** (`respect_boundaries`) | — | — |
+| 6 | Per-class breakdown of the causality cost | **done** | — | — |
+| 7 | Re-measure latency properly (single thread, median + IQR) | **done** | — | — |
+| 8 | Warm-started / streaming evaluation | **ready** | one sweep | in the sweep |
+| 9 | Regenerate smoothing on the streaming pipeline | **ready** (`--predictions`) | checkpoints | minutes after the sweep |
+| 10 | Epoch-boundary response time ("what does 1 Hz buy") | **ready** (`boundary_latency.py`) | predictions | minutes after the sweep |
+| 11 | Subject-level intervals | **ready** (`analyze_predictions --bootstrap`) | predictions | minutes after the sweep |
+| 12 | N3 class-prior correction | **ready** (`--prior-correction`) | predictions | minutes after the sweep |
+| 13 | End-to-end raw-signal streaming proof | **ready** (`streaming_demo.py --edf`) | 1 checkpoint + 1 EDF pair | an hour |
+| 14 | Normalisation-window ablation (15 / 30 / 120 s) | **ready** (configs exist) | GPU | ~1 week |
+| 15 | Context-length ablation at 300 s, streaming | **ready** (`sleep78_streaming_ctx300.yaml`) | GPU | ~1 week |
+| 16 | Subject-level *paired* test between arms | **not written** | needs fold-clustered inference | 2–3 days |
+| 17 | Calibration / reliability diagnostic | **not written** | predictions | 1–2 days |
+| 18 | Second dataset (DOD-H / DOD-O) | **not started** | data | 2–4 weeks |
+| 19 | Causalise a second architecture | **not started** | — | 3–4 weeks |
+| 20 | Edge-hardware measurement (Pi / Cortex-M) | **not started** | hardware | 2 weeks |
+| 21 | Distillation from the non-causal teacher | **not started** | — | 2 weeks |
+
+Notes on the ones that are not simply "run it":
+
+**Item 14, normalisation window.** 30 s was the only window ever tested, which makes it an
+unvalidated free parameter — a reviewer will ask whether the causality result depends on
+it. `sleep78_streaming_causal_w15.yaml` and `_w120.yaml` give a three-point curve. Both
+need their own `processed_dir`, so each costs a preprocessing pass as well as training.
+
+**Item 15, context length.** `sleep78_ctx300.yaml` already existed but reads
+`data/processed78` with no `normalization` block, so it runs on the **epoch-z-scored**
+data and its result could not be reported beside a streaming headline.
+`sleep78_streaming_ctx300.yaml` is the streaming equivalent and shares
+`data/processed78_streaming`, so it needs no extra preprocessing. The shape of the curve is
+itself the result: does more past context buy back what the future would have given you?
+
+**Item 16, subject-level paired test.** Tempting and easy to get wrong. Subjects are *not*
+independent replicates for this comparison: every subject in a fold is scored by the same
+trained causal/non-causal pair, so 78 differences come from 5 independent model draws.
+Treating them as 78 independent pairs inflates significance by roughly thirty orders of
+magnitude (p ≈ 1e−34 against a clustered p ≈ 0.008 on the same data). If this is written,
+cluster by fold or fit a mixed model with fold as a random effect. `--bootstrap` already
+gives honest subject-level *intervals*; it is the paired *test* that is missing.
+
+**Item 17, calibration.** Worth having as a diagnostic for a triage system. Note that
+measuring calibration is not the same as achieving it — if the paper wants to claim a
+calibrated model, temperature scaling has to be *fitted on validation folds*, never on the
+test folds it is then reported on.
+
 ### For a good journal (JBHI, TNSRE, BSPC)
 
 1. **A second dataset.** The single highest-value addition. **DOD-H / DOD-O** is the best
