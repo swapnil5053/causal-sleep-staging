@@ -228,7 +228,7 @@ N1 F1 is 0.398 on Sleep-EDF-78, above AttnSleep's 0.36 and CareSleepNet's 0.32.
 
 ## Latency
 
-**Superseded. See [latency_remeasurement.md](latency_remeasurement.md).**
+**Superseded. See [results/latency_remeasurement.md](results/latency_remeasurement.md).**
 
 The table below is the original measurement and should not be quoted. It reports the 60 s
 context as slower than the 120 s one despite doing strictly less work per call, which cannot
