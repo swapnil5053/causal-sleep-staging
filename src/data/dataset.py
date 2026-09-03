@@ -12,12 +12,17 @@ def resolve_split_seed(config):
     told apart afterwards. ``data.split_seed`` pins the partition independently: hold it
     fixed across runs to vary only the initialisation, or vary it to sample partitions.
 
-    When ``data.split_seed`` is absent the training seed is used, so every configuration
-    written before this option existed still produces exactly the splits it always did.
+    The canonical key is ``train.split_seed``, which sits beside ``train.seed`` so the two
+    knobs are visible together. ``data.split_seed`` is accepted as an alias. When neither is
+    present the training seed is used, so every configuration written before this option
+    existed still produces exactly the splits it always did.
     """
     data_cfg = (config or {}).get('data') or {}
     train_cfg = (config or {}).get('train') or {}
-    if 'split_seed' in data_cfg:
+    if 'split_seed' in train_cfg:
+        seed = train_cfg['split_seed']
+        source = "train.split_seed"
+    elif 'split_seed' in data_cfg:
         seed = data_cfg['split_seed']
         source = "data.split_seed"
     else:
