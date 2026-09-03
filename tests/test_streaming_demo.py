@@ -13,7 +13,7 @@ import unittest
 import numpy as np
 import torch
 
-from src.data.normalization import causal_rolling_zscore
+from src.data.normalization import StreamingZScore, causal_rolling_zscore
 from src.model.full_model import SleepStagingModel
 
 SAMPLE_RATE = 100
@@ -73,15 +73,22 @@ class BufferTests(unittest.TestCase):
             self.assertEqual(len(self.stager._history), CONTEXT)
 
     def test_reset_history_keeps_the_normalizer_running(self):
-        """A new window restarts the model's context, not the trailing z-score."""
+        """A new window restarts the model's context, not the trailing z-score.
+
+        Compared against an independently advanced filter rather than merely asserting the
+        value changed: a reset normalizer would also change the value, so "different" does
+        not distinguish the two and would pass even if reset_history wiped the filter.
+        """
+        reference = StreamingZScore(window_samples=SAMPLE_RATE * 30)
         for value in range(500):
             self.stager.push_sample(float(value))
-        before = self.stager.normalizer.update(1.0)
+            reference.update(float(value))
+
         self.stager.reset_history()
-        after = self.stager.normalizer.update(1.0)
 
         self.assertFalse(self.stager.context_filled())
-        self.assertNotEqual(before, after)        # state carried across the reset
+        self.assertAlmostEqual(self.stager.normalizer.update(1.0), reference.update(1.0),
+                               places=12)
 
     def test_streamed_normalization_equals_the_offline_array(self):
         rng = np.random.default_rng(4)
@@ -93,10 +100,36 @@ class BufferTests(unittest.TestCase):
         np.testing.assert_allclose(streamed, offline[:len(streamed)], rtol=1e-6, atol=1e-6)
 
     def test_trailing_prediction_labels_only_the_latest_second(self):
-        for _ in range(CONTEXT):
-            self.stager.push_second(np.zeros(SAMPLE_RATE, dtype=np.float32))
+        """It must be the newest second's logits, not the oldest and not a constant.
 
-        self.assertEqual(tuple(self.stager.predict_trailing().shape), (5,))
+        Shape alone would pass for predict_window()[0] — labelling the oldest second in the
+        buffer, which is a causality bug — and for a hard-coded zero vector.
+        """
+        rng = np.random.default_rng(9)
+        for _ in range(CONTEXT):
+            self.stager.push_second(rng.normal(size=SAMPLE_RATE).astype(np.float32))
+
+        trailing = self.stager.predict_trailing()
+        window = self.stager.predict_window()
+
+        self.assertEqual(tuple(trailing.shape), (5,))
+        torch.testing.assert_close(trailing, window[-1])
+        self.assertFalse(torch.allclose(trailing, window[0]))
+
+    def test_the_trailing_prediction_moves_when_the_newest_second_changes(self):
+        """Guards against the buffer being read at a fixed offset."""
+        rng = np.random.default_rng(10)
+        history = [rng.normal(size=SAMPLE_RATE).astype(np.float32) for _ in range(CONTEXT)]
+        for second in history:
+            self.stager.push_second(second)
+        before = self.stager.predict_trailing()
+
+        self.stager.reset_history()
+        for second in history[:-1]:
+            self.stager.push_second(second)
+        self.stager.push_second((history[-1] * 5.0 + 3.0).astype(np.float32))
+
+        self.assertFalse(torch.allclose(before, self.stager.predict_trailing()))
 
 
 class EquivalenceTests(unittest.TestCase):

@@ -32,9 +32,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.data.normalization import StreamingZScore  # noqa: E402
 from src.model.full_model import SleepStagingModel  # noqa: E402
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Resolved against the repository, not the working directory: run from anywhere else and
+# cwd-relative paths silently find no configs, and the script would then overwrite the
+# archived report with an empty table.
 CONFIGS = {
-    "C0 (60s context)": "configs/default.yaml",
-    "C1 (120s context)": "configs/sleep78_streaming_causal.yaml",
+    "C0 (60s context)": os.path.join(REPO_ROOT, "configs/default.yaml"),
+    "C1 (120s context)": os.path.join(REPO_ROOT, "configs/sleep78_streaming_causal.yaml"),
 }
 
 NUM_WARMUP = 100
@@ -98,8 +103,16 @@ def benchmark_normalizer():
     for _ in range(window_samples):
         normalizer.update(np.random.randn())
 
+    # Samples are drawn up front. Calling np.random.randn() inside the timed region would
+    # measure the random number generator alongside the filter: randn costs roughly 0.5 us
+    # here against update()'s 0.7, so including it inflates the published figure by about
+    # half again.
+    samples = np.random.randn(NUM_WARMUP + NUM_TIMED + 1)
+    counter = {"i": 0}
+
     def update_call():
-        normalizer.update(np.random.randn())
+        normalizer.update(samples[counter["i"] % len(samples)])
+        counter["i"] += 1
 
     latencies_ms = time_calls(update_call, NUM_WARMUP, NUM_TIMED)
     stats = summarize(latencies_ms)
@@ -118,11 +131,18 @@ def main():
     torch.set_num_threads(1)
 
     config_results = []
+    missing = []
     for name, path in CONFIGS.items():
         if not os.path.exists(path):
             print(f"skipping {name}: {path} not found")
+            missing.append(path)
             continue
         config_results.append(benchmark_config(name, path))
+    if missing:
+        # Writing a report with an empty table over the archived one would be worse than
+        # not running at all, and --out defaults to the archived path.
+        raise SystemExit(f"refusing to write a report: {len(missing)} config(s) not found "
+                         f"({', '.join(missing)})")
 
     normalizer_stats = benchmark_normalizer()
 
@@ -152,12 +172,23 @@ def main():
     lines.append("")
     if len(config_results) == 2:
         c0, c1 = config_results[0], config_results[1]
+        shorter_is_faster = c0["forward"]["median_ms"] < c1["forward"]["median_ms"]
         lines.append("## Comparison\n")
         lines.append(f"{c0['name']} does strictly less work per call than {c1['name']} "
                      f"({c0['sequence_length_sec']}s vs {c1['sequence_length_sec']}s of "
-                     f"context), so its median latency should be lower per call. The "
-                     f"previous mean-based, non-thread-pinned benchmark reported the "
-                     f"opposite; this corrected measurement is the one to present.")
+                     f"context), so its median latency should be lower per call.")
+        # Read off the measurement rather than asserted: a run that came out the other way
+        # would otherwise still print the conclusion this benchmark exists to check.
+        if shorter_is_faster:
+            lines.append(f"It is: {c0['forward']['median_ms']:.3f} ms against "
+                         f"{c1['forward']['median_ms']:.3f} ms. The previous mean-based, "
+                         f"non-thread-pinned benchmark reported the opposite; this "
+                         f"corrected measurement is the one to present.")
+        else:
+            lines.append(f"It is not: {c0['forward']['median_ms']:.3f} ms against "
+                         f"{c1['forward']['median_ms']:.3f} ms. Something is wrong with "
+                         f"this run - check thread pinning and machine load before "
+                         f"reporting either figure.")
     report = "\n".join(lines) + "\n"
 
     if not args.quiet:

@@ -25,9 +25,12 @@ def resolve_split_seed(config):
     elif 'split_seed' in data_cfg:
         seed = data_cfg['split_seed']
         source = "data.split_seed"
-    else:
-        seed = train_cfg.get('seed', data_cfg.get('seed', 42))
+    elif 'seed' in train_cfg:
+        seed = train_cfg['seed']
         source = "train.seed"
+    else:
+        seed = data_cfg.get('seed', 42)
+        source = "data.seed"
 
     # A seed that is None or a string would silently reshuffle the folds: random.seed(None)
     # draws a fresh partition every run, and random.seed("42") is a different partition

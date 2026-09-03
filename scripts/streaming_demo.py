@@ -347,13 +347,25 @@ def main():
 
     # ------------------------------------------------------------------ stream the labels
     start = args.start if args.start is not None else find_transition(labels, context, args.minutes)
-    if args.mode == "window":
-        start = (start // context) * context           # window mode emits on window boundaries
     start = max(0, min(start, len(x) - context))
     span = min(int(args.minutes * 60), len(x) - start)
-    if args.mode == "rolling":
+    if args.mode == "window":
+        # Clamp first, then align, and floor the span to whole windows. Aligning before the
+        # clamp lets the clamp knock start back off the grid whenever len(x) is not a
+        # multiple of the context, and the printed labels would then not be the ones
+        # evaluate.py produces for those seconds.
+        start = (start // context) * context
+        span = (span // context) * context
+        if span == 0:
+            raise SystemExit(f"--minutes {args.minutes} covers {int(args.minutes * 60)} s, "
+                             f"less than one {context} s window; nothing would be emitted")
+        assert start % context == 0, "window mode must emit on evaluate.py's window grid"
+    else:
         start = max(start, context - 1)                # need a full trailing context
         span = min(span, len(x) - start)
+        if span <= 0:
+            raise SystemExit("nothing to emit: the trailing context reaches the end of the "
+                             "recording")
 
     print(f"Printing      : {hms(start)} to {hms(start + span)} "
           f"({span} s of {len(x):,} s streamed)")
