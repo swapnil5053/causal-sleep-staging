@@ -168,6 +168,19 @@ never existed in time. Preprocessing now records where those joins are.
 
 Test count goes from **19 to 75**.
 
+### Which branches are in this one
+
+| Branch | Status |
+|---|---|
+| `run-provenance-and-streaming-eval` (yours) | this branch |
+| `causal-analysis` (Shreshtha) | **fully integrated** — all four commits' content, squashed into one, her authorship preserved |
+| `warm-start-eval-and-analysis` (Shreeya) | **partially integrated** — three pieces taken and repaired; the rest deliberately not, for the reasons in the table below |
+| `streaming-demo-and-split-seed` (Shreeya) | superseded, fully contained in her other branch |
+
+So "all three branches merged" is true of Shreshtha's and true only in part of Shreeya's.
+Her branch remains on the remote unmerged; what was taken from it is `recover_splits.py`
+with the recovered split files, the streaming front end, and the U-Sleep finding.
+
 ### What was taken from the other branches, and what was not
 
 `causal-analysis` (Shreshtha) merges cleanly — it touches only `scripts/` and `results/`,

@@ -76,14 +76,16 @@ runs: they are three repeats of five-fold cross-validation over fifteen distinct
 Analyses of that data should account for the train-set overlap between repeats rather than
 treating the fifteen cells as fifteen independent folds.
 
-`data.split_seed` pins the partition independently of `train.seed`:
+`train.split_seed` pins the partition independently of `train.seed`:
 
 ```yaml
-data:
-  split_seed: 42     # fold layout; hold fixed to vary only the initialization
 train:
   seed: 43           # weight initialization
+  split_seed: 42     # fold layout; hold fixed to vary only the initialization
 ```
+
+The two sit together so it is visible that they are separate knobs. `data.split_seed` is
+accepted as an alias, but `train.split_seed` wins if both are present, so do not set both.
 
 Omitting `split_seed` uses `train.seed`, so every configuration written before this option
 existed produces exactly the splits it always did. Each fold's `split_fold_N.yaml` now records
@@ -108,6 +110,21 @@ Two loader options use it, both off by default so the archived windowing is unch
 `respect_boundaries` needs `segment_starts`, so it raises rather than silently doing nothing on
 directories processed before that metadata existed. Re-run preprocessing into a clean directory
 to use it.
+
+### The normalizer resets at every recording
+
+`StreamingZScore` is reset at the start of each recording, including between a subject's two
+nights. This is deliberate — a device powering on has no history either — but it means the
+first seconds of every night are normalized against a partial window rather than a full 30 s
+one, and this is worth one sentence in the methods rather than leaving a reviewer to find it.
+
+It is safe rather than merely tolerable. Within a trailing window holding `n` samples the
+largest attainable magnitude is `sqrt(n - 1)`, so the cold start cannot produce an infinity
+or a NaN however few samples have been seen; `causal_rolling_zscore` returns 0 while the
+standard deviation is below `eps`. `scripts/verify_causality.py` checks that bound on every
+run and reports the measured maximum against it, and
+`tests/test_end_to_end_causality.py::test_normalized_output_is_finite_including_warmup`
+asserts it directly.
 
 ## 1. Environment
 

@@ -228,13 +228,26 @@ N1 F1 is 0.398 on Sleep-EDF-78, above AttnSleep's 0.36 and CareSleepNet's 0.32.
 
 ## Latency
 
-Intel Core i9-14900HX, 200 runs each.
+**Superseded. See [latency_remeasurement.md](latency_remeasurement.md).**
+
+The table below is the original measurement and should not be quoted. It reports the 60 s
+context as slower than the 120 s one despite doing strictly less work per call, which cannot
+be right: it used mean timing with no thread pinning over 20 warm-up and 200 timed runs, so
+occasional slow calls dominated. The corrected protocol (batch 1, single thread, 100 warm-up,
+1000 timed, median and IQR, normalizer measured separately) puts the two back in the expected
+order, at 0.0216 and 0.0271 ms per second of EEG.
 
 | Configuration | ms per 1 s of EEG | Margin vs 3 ms/s target |
 |---|---|---|
 | 60 s context, 3 TCN blocks | 0.045 | 67x |
 | 120 s context, 3 TCN blocks | 0.026 | 114x |
 | 120 s context, 4 TCN blocks | 0.074 | 41x |
+
+Two cautions before any of these figures reach a paper. They are batch numbers: one forward
+pass amortised over a whole context window. A device labelling every second pays the rolling
+cost instead, which `scripts/streaming_demo.py --mode rolling` measures and which is roughly
+forty times larger. And the 3 ms/s target is an interpretable reference point, not a
+requirement derived from any real device.
 
 ## Limitations
 
