@@ -163,7 +163,7 @@ never existed in time. Preprocessing now records where those joins are.
 | `scripts/streaming_demo.py` | **integrated and repaired** — sample-at-a-time device path | new |
 | `tests/test_streaming_demo.py` | **new** — 8 tests, including three that prove the equivalence check can fail | new |
 | `scripts/per_class_breakdown.py`, `latency_remeasurement.py`, `seed_overlap_simulation.py` | **merged from `causal-analysis`** (Shreshtha) | new |
-| `scripts/pool_seeds.py`, `results/statistics_streaming_pooled.md` | Nadeau–Bengio correction (Shreshtha) | updated |
+| `scripts/pool_seeds.py`, `results/statistics.md` | Nadeau–Bengio correction (Shreshtha) | updated |
 | `REPRODUCIBILITY.md` | documents split seeds, continuity, saved predictions, streaming evaluation | docs |
 
 Test count goes from **19 to 75**.
@@ -305,7 +305,7 @@ Splices are skipped: a label change at a night join is not a transition in time.
 python sweep_smoothing.py --predictions logs_78streaming_causal_s42
 ```
 
-The smoothing sweep in `results/smoothing.md` was run on the **epoch-z-scored** pipeline —
+The smoothing sweep in `results/statistics.md` was run on the **epoch-z-scored** pipeline —
 the leaky one. If the paper's headline moves to the streaming runs, Table VII and Figure 2
 are on a different pipeline from everything around them, which a reviewer will notice.
 Re-running it still needs streaming checkpoints (they do not exist), but from the *next*

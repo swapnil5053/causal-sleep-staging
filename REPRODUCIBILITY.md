@@ -51,7 +51,7 @@ Each fold's checkpoint directory records the subject split, so folds may be run 
 with `--fold -1`; training re-seeds per fold, and both give identical results.
 
 `scripts/verify_causality.py` has been run against the trained causal checkpoint and its report
-is archived at `results/causality_verification.md`. Re-run it after any change to normalization,
+is archived at `results/generated/causality_verification.md`. Re-run it after any change to normalization,
 padding or masking, and archive the new report with the run; the end-to-end causal claim rests
 on it.
 
@@ -224,7 +224,7 @@ python scripts/verify_causality.py \
   --config configs/sleep78_streaming_causal.yaml \
   --checkpoint checkpoints_78streaming_causal_s42/best_model_fold_0.pth \
   --subject data/processed78_streaming/subject_00.npz \
-  --out results/causality_verification.md
+  --out results/generated/causality_verification.md
 ```
 
 ## 5. Training
@@ -320,13 +320,13 @@ Evaluate trailing-window smoothing using the trained causal checkpoints:
 
 ```bash
 python sweep_smoothing.py --config configs/sleep78_causal.yaml \
-  --out results/smoothing.md
+  --out results/generated/smoothing.md
 ```
 
 Generate the archived statistical summary:
 
 ```bash
-python analysis_stats.py --out results/statistics.md
+python analysis_stats.py --out results/generated/statistics.md
 ```
 
 Run the same paired tests on any other run pair with `--pair NAME=causal_dir,noncausal_dir`
@@ -335,7 +335,7 @@ Run the same paired tests on any other run pair with `--pair NAME=causal_dir,non
 ```bash
 python analysis_stats.py \
   --pair "Sleep-EDF-78 streaming=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42" \
-  --out results/statistics_streaming.md
+  --out results/generated/statistics_streaming.md
 ```
 
 When the same comparison has been repeated under several seeds, report the pooled paired test
@@ -346,7 +346,7 @@ python scripts/pool_seeds.py \
   --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
   --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
   --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44 \
-  --out results/statistics_streaming_pooled.md
+  --out results/generated/statistics_streaming_pooled.md
 ```
 
 It refuses to run if a summary CSV lists a fold twice or if the two arms cover different folds,

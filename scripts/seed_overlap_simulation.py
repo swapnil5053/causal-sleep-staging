@@ -12,7 +12,7 @@ seen in results/trimmed/checkpoints/split_fold_0.yaml) since the full processed 
 it never reads subject data -- so the fold membership and overlap counts are identical to
 what the real 78-subject run would produce.
 
-    python scripts/seed_overlap_simulation.py --out results/seed_overlap.md
+    python scripts/seed_overlap_simulation.py --out results/generated/seed_overlap.md
 """
 
 import argparse
@@ -31,7 +31,7 @@ SEEDS = [42, 43, 44]
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default="results/seed_overlap.md")
+    ap.add_argument("--out", default="results/generated/seed_overlap.md")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 

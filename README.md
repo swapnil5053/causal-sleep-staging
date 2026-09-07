@@ -175,7 +175,7 @@ is checked rather than asserted.
 
 `python scripts/verify_causality.py` runs the whole path — raw sample, normalization, model —
 perturbs the input at a future second, and requires every earlier output to be bit-identical.
-It writes `results/causality_verification.md` and exits non-zero on failure, so it can gate a
+It writes `results/generated/causality_verification.md` and exits non-zero on failure, so it can gate a
 run. Configs that still use `epoch_zscore` fail it by design.
 
 Only `configs/sleep78_streaming_*.yaml` use the causal normalization; every other config keeps

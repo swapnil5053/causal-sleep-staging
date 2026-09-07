@@ -12,7 +12,7 @@ This script replaces it: batch size 1, single thread, 100 warm-up, 1000 timed ru
 reporting median and IQR, with StreamingZScore benchmarked separately from the model.
 Random (untrained) weights are used, since latency does not depend on trained values.
 
-    python scripts/latency_remeasurement.py --out results/latency_remeasurement.md
+    python scripts/latency_remeasurement.py --out results/generated/latency_remeasurement.md
 """
 
 import argparse
@@ -124,7 +124,7 @@ def benchmark_normalizer():
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default="results/latency_remeasurement.md")
+    ap.add_argument("--out", default="results/generated/latency_remeasurement.md")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 

@@ -3,10 +3,10 @@
 Pools the five per-class F1 scores (W, N1, N2, N3, REM) across all three seeds x five
 folds for both the causal and non-causal streaming runs, and reports the causal-minus-
 non-causal difference per class. This is the mechanistic complement to the pooled kappa
-statistic in results/statistics_streaming_pooled.md: it answers *where* the cost falls,
+statistic in results/generated/statistics_streaming_pooled.md: it answers *where* the cost falls,
 not just that it exists.
 
-    python scripts/per_class_breakdown.py --out results/per_class_breakdown.md
+    python scripts/per_class_breakdown.py --out results/generated/per_class_breakdown.md
 
 Reads test_metrics_summary.csv from the same six streaming run directories used by
 scripts/pool_seeds.py.
@@ -46,7 +46,7 @@ def read_per_class_f1(directory):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default="results/per_class_breakdown.md")
+    ap.add_argument("--out", default="results/generated/per_class_breakdown.md")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 

@@ -16,7 +16,7 @@ uses only past predictions and preserves the real-time property.
 Inference runs once per fold; the sweep is then almost free. With `--predictions` the
 inference does not run at all: the sweep reads the per-second predictions evaluation
 already saved, so it needs neither the checkpoints nor the processed data. Writes
-results/smoothing.md.
+results/generated/smoothing.md.
 """
 import argparse
 import os
@@ -148,7 +148,7 @@ def main():
                          "holding them, instead of re-running inference from checkpoints.")
     ap.add_argument("--pattern", default="fold_*_predictions.npz",
                     help="Glob used inside a --predictions directory.")
-    ap.add_argument("--out", default="results/smoothing.md")
+    ap.add_argument("--out", default="results/generated/smoothing.md")
     args = ap.parse_args()
 
     if args.predictions:

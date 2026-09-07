@@ -228,7 +228,7 @@ N1 F1 is 0.398 on Sleep-EDF-78, above AttnSleep's 0.36 and CareSleepNet's 0.32.
 
 ## Latency
 
-**Superseded. See [results/latency_remeasurement.md](results/latency_remeasurement.md).**
+**Superseded. See [results/verification.md](results/verification.md).**
 
 The table below is the original measurement and should not be quoted. It reports the 60 s
 context as slower than the 120 s one despite doing strictly less work per call, which cannot
@@ -261,9 +261,9 @@ requirement derived from any real device.
 - `results/sleep78_streaming_causal/`, `results/sleep78_streaming_noncausal/` primary result,
   end-to-end causal pipeline
 - `results/sleep78_streaming_causal_s43/`, `_s44/` and their non-causal counterparts, seeds 43-44
-- `results/statistics_streaming.md` paired test for seed 42
-- `results/statistics_streaming_pooled.md` pooled test over all three seeds
-- `results/causality_verification.md` future-perturbation report for the full path
+- `results/statistics.md` the causality ablation, both pipelines
+- `results/statistics.md` pooled test over all three seeds
+- `results/verification.md` future-perturbation report for the full path
 - `results/sleep78_causal/`, `results/sleep78_noncausal/` earlier epoch-normalized runs
 - `results/run_a_baseline/`, `run_b_context/`, `run_c_depth/` configuration ablation, 20 subjects
 - `results/run_d_noncausal/`, `run_d2_noncausal/` causality ablation, 20 subjects

@@ -70,3 +70,16 @@ checkpoints_*/
 *_run.log
 run_*.log
 overnight_run.log
+
+# Internal working notes, panel-prep material and locally generated reports.
+# None of this belongs in the public repository the paper cites.
+notes_internal/
+Claude outputs/
+figures/deck/
+results/generated/
+logs_sweep_runs/
+logs_sweep_*/
+checkpoints_sweep_*/
+
+# DOD-H / DOD-O raw archives and extracted h5 (tens of GB, never committed)
+data/dod*/

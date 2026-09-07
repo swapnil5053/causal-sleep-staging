@@ -15,7 +15,7 @@ the repeated k-fold extension in Bouckaert & Frank (2004).
         --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
         --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
         --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44 \
-        --out results/statistics_streaming_pooled.md
+        --out results/generated/statistics_streaming_pooled.md
 
 Each directory must contain a `test_metrics_summary.csv` written by `src/eval/evaluate.py`.
 Exits non-zero if a pair is missing folds or the two arms disagree on which folds are present,
