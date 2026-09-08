@@ -1,0 +1,72 @@
+# DOD-H second-dataset replication, causal arm, initialisation seed 43.
+#
+# Purpose: test whether the evaluation-protocol effect measured on Sleep-EDF-78 reproduces on
+# an independent dataset. Nothing about the architecture, the loss, the optimiser or the two
+# evaluation protocols changes; only the source of the EEG does. Any setting that differs from
+# configs/sweep/causal_s43.yaml is forced by the dataset and is listed here:
+#
+#   processed_dir        data/processed_dodh (F3-M2 at 250 Hz resampled to 100 Hz)
+#   target_channel       F3_M2. DOD carries no Fpz-Cz; F3-M2 is the only frontal derivation
+#                        present in BOTH DOD-H and DOD-O, so the choice extends to DOD-O.
+#   wake_trim_minutes    null. Sleep-EDF cassette runs ~20 h at 68% Wake and must be trimmed;
+#                        DOD records are 5-10 h at ~12% Wake, so trimming would remove real
+#                        sleep-adjacent Wake rather than daytime recording.
+#   num_folds            5 over 25 subjects -> 15 train / 5 val / 5 test per fold.
+#
+# sequence_length stays at 120 s and split_seed stays pinned at 42 across seeds, both so the
+# comparison against the Sleep-EDF result is like for like. Focal-loss class weights are
+# computed by train.py from each training fold's own counts, so DOD-H's very different balance
+# (~48% N2 against Sleep-EDF's ~35%) is handled without hand-tuning.
+#
+# Training pool here is ~123 h against ~980 h on Sleep-EDF, so expect noisier folds. The effect
+# under test is large relative to that noise: +0.035 kappa against +0.004 between protocols.
+data:
+  raw_dir: data/dod/dodh
+  processed_dir: data/processed_dodh
+  target_channel: F3_M2
+  resample_rate: 100
+  wake_trim_minutes: null
+  normalization:
+    method: causal_rolling
+    window_seconds: 30
+    eps: 1.0e-08
+  sequence_length: 120
+  sequence_stride: 60
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  seed: 42
+  respect_boundaries: true
+  cover_tail: false
+model:
+  mrcnn_channels_1: 16
+  mrcnn_channels_2: 16
+  tcn_channels:
+  - 32
+  - 32
+  - 32
+  tcn_kernel_size: 3
+  tcn_dilations:
+  - 1
+  - 2
+  - 4
+  tcn_dropout: 0.2
+  attn_num_heads: 4
+  attn_dropout: 0.1
+  num_classes: 5
+  causal: true
+train:
+  epochs: 40
+  early_stopping_patience: 8
+  checkpoint_metric: kappa
+  log_dir: logs_dodh_causal_s43
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0001
+  loss_type: focal
+  focal_gamma: 2.0
+  use_weighted_sampler: false
+  num_folds: 5
+  checkpoint_dir: checkpoints_dodh_causal_s43
+  seed: 43
+  split_seed: 42

@@ -32,7 +32,8 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.join(REPO, "configs", "sweep")
+CONFIG_DIR = os.path.join(REPO, "configs", "sweep")   # overridable with --config_dir
+TAG = "sweep"                                        # marker required in output dir names
 RUN_LOG_DIR = os.path.join(REPO, "logs_sweep_runs")
 STREAM_STRIDE = 30
 
@@ -91,13 +92,19 @@ def preflight(configs):
     if not npz:
         problems.append(
             f"no preprocessed data in {pdir}. Run preprocessing first:\n"
-            f"      python -m src.data.preprocessing "
-            f"--config configs/sweep/causal_s42.yaml --all")
+            + (f"      python scripts/dod_preprocessing.py --h5_dir data/dod/dodh "
+               f"--processed_dir {os.path.relpath(pdir, REPO)} --all"
+               if "dod" in TAG else
+               f"      python -m src.data.preprocessing "
+               f"--config {os.path.relpath(configs[0][0], REPO)} --all"))
     else:
         notes.append(f"{len(npz)} preprocessed subjects in {os.path.relpath(pdir, REPO)}")
-        if len(npz) < 78:
-            problems.append(f"expected 78 subjects in {pdir}, found {len(npz)}. "
-                            f"Preprocessing did not finish.")
+        folds = {c["train"].get("num_folds", 5) for _, c in configs}
+        if len(folds) != 1:
+            problems.append(f"configs disagree about num_folds: {sorted(folds)}")
+        elif len(npz) % sorted(folds)[0]:
+            problems.append(f"{len(npz)} subjects does not divide evenly into "
+                            f"{sorted(folds)[0]} folds; some folds will be uneven.")
         # respect_boundaries raises at dataset construction if this metadata is absent.
         # Better to find out here than after the first fold has trained.
         import numpy as np
@@ -121,8 +128,9 @@ def preflight(configs):
     for path, cfg in configs:
         log_dir, ckpt_dir = dirs_for(cfg)
         for d in (log_dir, ckpt_dir):
-            if os.path.exists(d) and "sweep" not in os.path.basename(d):
-                problems.append(f"{path} writes to {d}, which is not a sweep directory.")
+            if os.path.exists(d) and TAG not in os.path.basename(d):
+                problems.append(f"{path} writes to {d}, whose name does not contain "
+                                f"'{TAG}'. Refusing, in case that is an archived run.")
 
     print("Preflight")
     print("-" * 72)
@@ -203,6 +211,11 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--arm", choices=ARMS, action="append",
                     help="Restrict to one arm. Repeatable. Default: both.")
+    ap.add_argument("--config_dir", default=None,
+                    help="Directory of {arm}_s{seed}.yaml configs. Default configs/sweep. "
+                         "Use configs/dodh for the DOD-H replication. Output directory names "
+                         "must contain this directory's name, so one sweep cannot overwrite "
+                         "another.")
     ap.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     ap.add_argument("--folds", type=int, nargs="+", default=list(FOLDS))
     ap.add_argument("--dry-run", action="store_true", help="Print the plan and stop.")
@@ -210,6 +223,13 @@ def main():
     ap.add_argument("--skip-streaming", action="store_true",
                     help="Skip the --stream_stride pass (it costs 4x a windowed evaluation).")
     args = ap.parse_args()
+
+    if args.config_dir:
+        global CONFIG_DIR, TAG
+        CONFIG_DIR = os.path.join(REPO, args.config_dir)
+        TAG = os.path.basename(os.path.normpath(args.config_dir))
+        if not os.path.isdir(CONFIG_DIR):
+            sys.exit(f"no such config directory: {CONFIG_DIR}")
 
     arms = tuple(args.arm) if args.arm else ARMS
     configs = []
@@ -285,10 +305,10 @@ def main():
     print("  python scripts/pool_seeds.py")
     print("  python analysis_stats.py --pair")
     for arm in arms:
-        print(f"  python scripts/analyze_predictions.py logs_sweep_{arm}_s42 "
+        print(f"  python scripts/analyze_predictions.py logs_{TAG}_{arm}_s{args.seeds[0]} "
               f"--bootstrap --per-subject --prior-correction")
-    print("  python scripts/boundary_latency.py logs_sweep_causal_s42 --hold 10")
-    print("  python sweep_smoothing.py --predictions logs_sweep_causal_s42")
+    print(f"  python scripts/boundary_latency.py logs_{TAG}_causal_s{args.seeds[0]} --hold 10")
+    print(f"  python sweep_smoothing.py --predictions logs_{TAG}_causal_s{args.seeds[0]}")
 
 
 if __name__ == "__main__":
