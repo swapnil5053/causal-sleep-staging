@@ -4,6 +4,7 @@ from src.model.mrcnn import MultiResolutionCNN
 from src.model.temporal import TemporalModel
 from src.model.attention import CausalSelfAttention
 from src.model.classifier import Classifier
+from src.model.gru import GRUSequenceEncoder
 
 class SleepStagingModel(nn.Module):
     """
@@ -30,6 +31,7 @@ class SleepStagingModel(nn.Module):
         mrcnn_ch1 = kwargs.get("mrcnn_channels_1", model_cfg.get("mrcnn_channels_1", 16))
         mrcnn_ch2 = kwargs.get("mrcnn_channels_2", model_cfg.get("mrcnn_channels_2", 16))
         
+        architecture = kwargs.get("architecture", model_cfg.get("architecture", "tcn_attention"))
         tcn_channels = kwargs.get("tcn_channels", model_cfg.get("tcn_channels", [32, 32, 32]))
         tcn_kernel = kwargs.get("tcn_kernel_size", model_cfg.get("tcn_kernel_size", 3))
         tcn_dilations = kwargs.get("tcn_dilations", model_cfg.get("tcn_dilations", [1, 2, 4]))
@@ -46,6 +48,7 @@ class SleepStagingModel(nn.Module):
         # of the causal constraint on this exact architecture.
         causal = kwargs.get("causal", model_cfg.get("causal", True))
         self.causal = causal
+        self.architecture = architecture
         
         # 1. Multi-Resolution CNN
         self.mrcnn = MultiResolutionCNN(
@@ -57,23 +60,38 @@ class SleepStagingModel(nn.Module):
             causal=causal
         )
         
-        # 2. Temporal Convolutional Network
-        self.temporal = TemporalModel(
-            in_channels=self.mrcnn.out_channels,
-            channel_list=tcn_channels,
-            kernel_size=tcn_kernel,
-            dilations=tcn_dilations,
-            dropout=tcn_dropout,
-            causal=causal
-        )
-        
-        # 3. Causal Multi-Head Self-Attention
-        self.attention = CausalSelfAttention(
-            embed_dim=self.temporal.out_channels,
-            num_heads=attn_heads,
-            dropout=attn_dropout,
-            causal=causal
-        )
+        if architecture == "gru":
+            self.temporal = GRUSequenceEncoder(
+                input_size=self.mrcnn.out_channels,
+                hidden_size=kwargs.get("gru_hidden_size", model_cfg.get("gru_hidden_size", 32)),
+                num_layers=kwargs.get("gru_num_layers", model_cfg.get("gru_num_layers", 2)),
+                dropout=kwargs.get("gru_dropout", model_cfg.get("gru_dropout", 0.1)),
+                causal=causal,
+            )
+            self.attention = None
+        elif architecture == "tcn_attention":
+            # 2. Temporal Convolutional Network
+            self.temporal = TemporalModel(
+                in_channels=self.mrcnn.out_channels,
+                channel_list=tcn_channels,
+                kernel_size=tcn_kernel,
+                dilations=tcn_dilations,
+                dropout=tcn_dropout,
+                causal=causal
+            )
+
+            # 3. Causal Multi-Head Self-Attention
+            self.attention = CausalSelfAttention(
+                embed_dim=self.temporal.out_channels,
+                num_heads=attn_heads,
+                dropout=attn_dropout,
+                causal=causal
+            )
+        else:
+            raise ValueError(
+                f"Unknown model architecture {architecture!r}; "
+                "expected 'tcn_attention' or 'gru'"
+            )
         
         # 4. Final Staging Classifier
         self.classifier = Classifier(
@@ -105,13 +123,13 @@ class SleepStagingModel(nn.Module):
         # Model temporal sequence dynamics using dilated causal convs
         # shape: (batch_size, tcn_out_channels, L)
         temporal_features = self.temporal(features)
-        
-        # Transpose for multi-head self-attention: (batch_size, L, tcn_out_channels)
-        temporal_features = temporal_features.transpose(1, 2)
-        
-        # Apply masked self-attention
-        # shape: (batch_size, L, tcn_out_channels)
-        attended_features = self.attention(temporal_features)
+
+        if self.attention is None:
+            attended_features = temporal_features
+        else:
+            # Transpose for multi-head self-attention: (batch_size, L, tcn_out_channels)
+            temporal_features = temporal_features.transpose(1, 2)
+            attended_features = self.attention(temporal_features)
         
         # Classify each second of the sequence
         # shape: (batch_size, L, num_classes)
