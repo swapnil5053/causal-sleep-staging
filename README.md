@@ -11,6 +11,11 @@ i9-14900HX CPU, so it can keep up with a live stream on a wearable.
 The repository also contains a controlled measurement of what that constraint costs: the same
 architecture, parameter for parameter, trained with and without access to future signal.
 
+An alternative causal MRCNN-GRU architecture is available for replication across model families.
+See [docs/alternative_gru_architecture.md](docs/alternative_gru_architecture.md) and the paired
+`configs/sleep78_streaming_gru*.yaml` files. Its results are intentionally not reported until
+the paired experiments are run.
+
 ## Results
 
 Subject-wise 5-fold cross-validation on Sleep-EDF, single channel Fpz-Cz at 100 Hz, five classes
@@ -83,6 +88,10 @@ the attention above the diagonal. Perturbing the signal at second *t* leaves eve
 Setting `causal: false` keeps every layer, channel and parameter identical but pads convolutions
 symmetrically and removes the attention mask, so the model can see the future. That is the only
 difference, which makes the causal/non-causal comparison a controlled one.
+
+For the alternative `architecture: "gru"`, causal mode uses a unidirectional GRU and the
+non-causal control uses a bidirectional GRU. This comparison is described in
+[docs/alternative_gru_architecture.md](docs/alternative_gru_architecture.md).
 
 ## Setup
 
