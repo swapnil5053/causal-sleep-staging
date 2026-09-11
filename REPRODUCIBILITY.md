@@ -1,223 +1,136 @@
 # Reproducing the experiments
 
-This guide maps the repository's configurations, commands, and archived outputs. Run commands
-from the repository root. Raw Sleep-EDF data is not distributed with this repository.
+This guide maps the repository's configurations, commands and archived outputs. Run commands from
+the repository root. Neither dataset is distributed with this repository.
 
-> **Causality scope:** the archived experiments use per-epoch z-score normalization calculated
-> over each complete 30-second epoch. The neural network is causal with respect to its normalized
-> input, but this preprocessing step uses later samples from the epoch. Preserve it only when
-> reproducing the archived numbers exactly. The streaming configurations below replace it with a
-> past-only statistic and retrain every compared model.
+Two preprocessing regimes exist here and they are never mixed. The current line of work uses a
+trailing 30-second z-score, computable one sample at a time, which is end to end causal. An
+earlier set of runs used per-epoch z-scoring, which normalises an early sample with statistics
+over its whole epoch and therefore reads that sample's future. Those runs are kept so previously
+published numbers stay verifiable, and they are marked as such throughout. Closing the leak raised
+kappa on both arms, so it was a modelling gain rather than a trade.
 
-### End-to-end causal preprocessing pilot
+For the fastest path to every reported number without retraining anything, see section 8.
 
-The streaming configurations are isolated from the archived epoch-normalized data: they read and
-write their own `processed_dir`, log directory and checkpoint directory, so nothing already
-archived is touched. They apply a trailing 30-second z-score at every raw sample; the statistic
-at time `t` contains only samples at or before `t` and resets at each recording.
+## Contents
 
-| Config | Seed | Causal | Normalization |
-|---|---:|:---:|---|
-| `configs/sleep78_streaming_causal.yaml` | 42 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal.yaml` | 42 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_s43.yaml` | 43 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_s44.yaml` | 44 | yes | trailing 30 s |
-| `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | no | trailing 30 s |
-| `configs/sleep78_streaming_causal_w120.yaml` | 42 | yes | trailing 120 s (window robustness, optional) |
+1. [Environment](#1-environment)
+2. [Data acquisition](#2-data-acquisition)
+3. [Preprocessing](#3-preprocessing)
+4. [Fast pre-run checks](#4-fast-pre-run-checks)
+5. [Training](#5-training)
+6. [Held-out evaluation, both protocols](#6-held-out-evaluation-both-protocols)
+7. [Analysis, statistics and figures](#7-analysis-statistics-and-figures)
+8. [Whole experiments in one command](#8-whole-experiments-in-one-command)
+9. [Experiment provenance](#9-experiment-provenance)
+10. [Run record checklist](#10-run-record-checklist)
 
-Order of work:
-
-```bash
-# 0. proofs and sanity checks, seconds, no data required
-python -m unittest discover -s tests -v
-python smoke_test.py configs/sleep78_streaming_causal.yaml
-python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
-
-# 1. preprocessing, once, shared by both arms
-python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
-
-# 2. go/no-go on one fold per arm before committing to the full sweep
-python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold 0
-python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0
-```
-
-Compare that fold-0 kappa against fold 0 of `results/sleep78_causal/test_metrics_summary.csv`,
-which is the same architecture, seed and split under the old epoch normalization. A drop of a
-few thousandths is expected and reportable; a collapse means the window length needs revisiting
-before spending the rest of the compute.
-
-Each fold's checkpoint directory records the subject split, so folds may be run individually or
-with `--fold -1`; training re-seeds per fold, and both give identical results.
-
-`scripts/verify_causality.py` has been run against the trained causal checkpoint and its report
-is archived at `results/generated/causality_verification.md`. Re-run it after any change to normalization,
-padding or masking, and archive the new report with the run; the end-to-end causal claim rests
-on it.
-
-### Preprocessing manifest
-
-Every preprocessing run writes `preprocessing_manifest.json` into its `processed_dir`. It records
-the config, normalization method and window, the number of PSG files found, paired, written and
-failed, the class distribution, and per-subject second counts. Archive it with the run: it is the
-evidence for the data-side half of the run record in section 9, and it is how a reviewer confirms
-which normalization produced a given result set.
-
-The dataset loader reads the same metadata from each `.npz` and refuses to build a dataset from a
-directory that mixes normalization regimes, so a partially reprocessed directory fails loudly at
-the start of training rather than silently producing an unreportable number.
-
-### Separating the partition from the initialization
-
-`train.seed` seeds the weight initialization and, historically, also the subject shuffle that
-decides the folds. Seeds 42, 43 and 44 therefore produced three different partitions rather than
-three initializations of one partition, and the two effects cannot be separated in the archived
-runs: they are three repeats of five-fold cross-validation over fifteen distinct partitions.
-Analyses of that data should account for the train-set overlap between repeats rather than
-treating the fifteen cells as fifteen independent folds.
-
-`train.split_seed` pins the partition independently of `train.seed`:
-
-```yaml
-train:
-  seed: 43           # weight initialization
-  split_seed: 42     # fold layout; hold fixed to vary only the initialization
-```
-
-The two sit together so it is visible that they are separate knobs. `data.split_seed` is
-accepted as an alias, but `train.split_seed` wins if both are present, so do not set both.
-
-Omitting `split_seed` uses `train.seed`, so every configuration written before this option
-existed produces exactly the splits it always did. Each fold's `split_fold_N.yaml` now records
-both seeds alongside the subject lists, so the partition behind a result is recoverable from the
-run itself. Setting one `split_seed` across a seed sweep gives the matched design the archived
-runs do not have.
-
-### Continuity of the stored signal
-
-Preprocessing drops unscored epochs and concatenates a subject's two nights, so a stored array is
-a sequence of discontinuous stretches rather than one recording. Each `.npz` now carries
-`segment_starts`, the second indices where a fresh stretch begins, and the manifest reports how
-many segments each subject has.
-
-Two loader options use it, both off by default so the archived windowing is unchanged:
-
-| Option | Effect |
-|---|---|
-| `data.respect_boundaries` | Drop context windows that span a night join or an unscored-epoch gap |
-| `data.cover_tail` | Add a final window flush with the end of the recording instead of discarding the trailing `(len - seq_len) % stride` seconds |
-
-`respect_boundaries` needs `segment_starts`, so it raises rather than silently doing nothing on
-directories processed before that metadata existed. Re-run preprocessing into a clean directory
-to use it.
-
-### The normalizer resets at every recording
-
-`StreamingZScore` is reset at the start of each recording, including between a subject's two
-nights. This is deliberate, since a device powering on has no history either, but it means the
-first seconds of every night are normalized against a partial window rather than a full 30 s
-one, and this is worth one sentence in the methods rather than leaving a reviewer to find it.
-
-It is safe rather than merely tolerable. Within a trailing window holding `n` samples the
-largest attainable magnitude is `sqrt(n - 1)`, so the cold start cannot produce an infinity
-or a NaN however few samples have been seen; `causal_rolling_zscore` returns 0 while the
-standard deviation is below `eps`. `scripts/verify_causality.py` checks that bound on every
-run and reports the measured maximum against it, and
-`tests/test_end_to_end_causality.py::test_normalized_output_is_finite_including_warmup`
-asserts it directly.
+Design decisions that affect every run are documented after section 10: the preprocessing
+manifest, the separation of the partition seed from the initialisation seed, signal continuity,
+and the normaliser cold start.
 
 ## 1. Environment
 
-Python 3.10 or newer is required. Create an isolated environment and install the pinned minimum
-dependencies:
+Python 3.10 or newer.
 
 ```bash
 python -m venv .venv
-```
-
-On Linux or macOS:
-
-```bash
-source .venv/bin/activate
+source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-On Windows PowerShell:
+For CUDA training install the PyTorch build appropriate for the machine before the remaining
+requirements. Record the Python, PyTorch, CUDA, GPU, operating-system and dependency versions
+alongside a new experiment; these affect numerical reproducibility.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-For CUDA training, install the PyTorch build appropriate for the machine before installing the
-remaining requirements. Record the Python, PyTorch, CUDA, GPU, operating-system, and dependency
-versions alongside a new experiment; these details can affect numerical reproducibility.
+A full fold takes about 16 minutes on an RTX 4060 laptop GPU and hours on CPU.
 
 ## 2. Data acquisition
 
-The experiments use the Sleep-EDF Expanded sleep-cassette subset from PhysioNet. For the
-20-subject subset used by the configuration ablations, download subjects 00 through 19:
+### Sleep-EDF Expanded
+
+The sleep-cassette subset from PhysioNet. For the complete 78-subject set:
+
+```bash
+aws s3 sync --no-sign-request \
+  s3://physionet-open/sleep-edfx/1.0.0/sleep-cassette/ data/raw/
+```
+
+For the 20-subject subset used by the configuration ablations, restrict to subjects 00 to 19:
 
 ```bash
 aws s3 sync --no-sign-request --exclude "*" --include "SC40*" --include "SC41*" \
   s3://physionet-open/sleep-edfx/1.0.0/sleep-cassette/ data/raw/
 ```
 
-Remove both `--include` filters to retrieve the complete 78-subject sleep-cassette set. A valid
-download contains paired `*-PSG.edf` and `*-Hypnogram.edf` files. The loader matches recordings
-and annotations by their subject prefix; scorer letters in hypnogram filenames need not be
-renamed.
+A valid download contains paired `*-PSG.edf` and `*-Hypnogram.edf` files. The loader matches
+recordings to annotations by subject prefix, so the scorer letters in hypnogram filenames need no
+renaming.
 
-The dataset has its own Open Data Commons Attribution License. Follow PhysioNet's current access,
-license, and citation requirements when redistributing derived material or publishing results.
+Sleep-EDF Expanded carries its own Open Data Commons Attribution License.
+
+### DOD-H
+
+Dreem Open Datasets, 25 subjects, channel F3-M2 at 250 Hz. `scripts/dod_preprocessing.py`
+documents acquisition and handles the whole path: the h5 reader, resampling to 100 Hz with a
+polyphase anti-aliasing filter, the not-scored code mapped onto the existing dropped-epoch logic,
+and the five-scorer consensus.
+
+```bash
+python scripts/dod_preprocessing.py --help
+```
+
+Validate on two or three records before processing the cohort. Records are streamed to `.npz` one
+at a time rather than held in memory; the cohort does not fit in 16 GB.
+
+DOD-H is not wake-trimmed, because Wake is already 12.3% of that corpus against 68% in untrimmed
+Sleep-EDF.
 
 ## 3. Preprocessing
 
-Process the 20-subject data with the default configuration:
+Each configuration names its own `processed_dir`, so the regimes cannot collide.
 
 ```bash
+# current line of work, trailing-window normalisation, 78 subjects
+python -m src.data.preprocessing --config configs/sleep78_streaming_causal.yaml --all
+
+# earlier epoch-normalised runs, 78 subjects
+python -m src.data.preprocessing --config configs/sleep78_causal.yaml --all
+
+# 20-subject configuration ablations
 python -m src.data.preprocessing --config configs/default.yaml --all
 ```
 
-Process the full 78-subject data with its dedicated configuration:
+Preprocessing is performed once per regime and both arms of a comparison read the same arrays.
 
-```bash
-python -m src.data.preprocessing --config configs/sleep78_causal.yaml --all
-```
+Each output file is named `subject_<ID>.npz` and contains:
 
-Both the causal and non-causal 78-subject experiments point to `data/processed78`, so preprocessing
-is performed once and the same arrays are used in the controlled comparison. Each output file is
-named `subject_<ID>.npz` and contains:
-
-- `x`: normalized EEG, `float32`, shape `(number_of_seconds, 100)`;
-- `y`: integer labels, `int64`, shape `(number_of_seconds,)`;
+- `x`: normalised EEG, `float32`, shape `(number_of_seconds, 100)`
+- `y`: integer labels, `int64`, shape `(number_of_seconds,)`
+- `segment_starts`: the second indices where a fresh continuous stretch begins
 - `normalization_method`, `normalization_window_seconds`, `normalization_eps`,
-  `wake_trim_minutes`, `resample_rate`: the preprocessing that produced the file.
+  `wake_trim_minutes`, `resample_rate`: the preprocessing that produced the file
 
-Before training, record the number of raw PSG files, paired hypnograms, processed subjects, and
-any skipped recordings. Never combine processed files created with different preprocessing
-methods in one directory.
+The loader reads that metadata from every file and refuses to build a dataset from a directory
+mixing regimes, so a partially reprocessed directory fails at the start of training rather than
+producing an unreportable number.
 
 ## 4. Fast pre-run checks
 
-Run the smoke test before committing resources to a complete fold:
-
-```bash
-python smoke_test.py configs/sleep78_causal.yaml
-```
-
-Run the unit tests with the Python standard library test runner:
+Seconds, and no data required:
 
 ```bash
 python -m unittest discover -s tests -v
+python smoke_test.py configs/sleep78_streaming_causal.yaml
+python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
 ```
 
-The tests check tensor dimensions, parameter count, model-layer causality, subject split
-integrity, and, in `tests/test_end_to_end_causality.py`, causality of the composed
-normalization-plus-model path, including that the offline arrays equal the online
+The tests check tensor dimensions, parameter counts, layer-level causality for both
+architectures, subject split integrity, and in `tests/test_end_to_end_causality.py` the causality
+of the composed normalisation and model path, including that the offline arrays equal the online
 sample-at-a-time filter and that the non-causal arm genuinely does leak.
 
-For a run-specific, archivable version of the same proof against real weights:
+For a run-specific, archivable proof against real weights:
 
 ```bash
 python scripts/verify_causality.py \
@@ -227,119 +140,125 @@ python scripts/verify_causality.py \
   --out results/generated/causality_verification.md
 ```
 
+Re-run it after any change to normalisation, padding or masking, and archive the report with the
+run. The end to end causal claim rests on it. Reports for both architectures are at
+`results/causality_verification.md` and `results/causality_verification_gru.md`.
+
+Before committing to a full sweep, train and score one fold and compare it against the archived
+fold 0 for the same configuration. A drop of a few thousandths is expected and reportable; a
+collapse means something needs revisiting before spending the rest of the compute.
+
 ## 5. Training
 
-Train one fold first to verify memory use, output locations, and approximate runtime:
-
 ```bash
-python -m src.train.train --config configs/sleep78_causal.yaml --fold 0
+python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold 0    # one fold
+python -m src.train.train --config configs/sleep78_streaming_causal.yaml --fold -1   # all five
 ```
 
-Train all five folds sequentially:
+Training re-seeds per fold, so running folds individually and running `--fold -1` give identical
+results. Every fold saves the subject split in `split_fold_<N>.yaml`, the best checkpoint in
+`best_model_fold_<N>.pth`, and the per-epoch history in `fold_<N>_metrics.csv`.
+
+The validation fold selects the checkpoint on the configured metric, kappa by default. The test
+fold is used for none of parameter updates, early stopping or checkpoint selection.
+
+To reproduce another experiment, change only the configuration path. Do not edit a shared
+configuration during a run.
+
+### The recurrent architecture
+
+`configs/sleep78_streaming_gru*.yaml` are generated rather than hand-written, so that everything
+outside the model block is copied from the matching convolutional config and the two architectures
+cannot silently diverge on data, folds, split seed or schedule:
 
 ```bash
-python -m src.train.train --config configs/sleep78_causal.yaml --fold -1
+python scripts/make_gru_configs.py
 ```
 
-For every fold, training saves:
+It prints the parameter count of each arm and refuses to write anything if the causal arm and its
+bidirectional control drift more than one percent apart. A bidirectional GRU at equal hidden size
+would carry 1.94 times the parameters, so the control runs at a reduced per-direction width.
 
-- the subject split in `split_fold_<N>.yaml`;
-- the best checkpoint in `best_model_fold_<N>.pth`;
-- the per-epoch training and validation history in `fold_<N>_metrics.csv`.
+### The capacity check
 
-The validation fold selects the checkpoint using the configured metric (kappa by default). The
-test fold is not used for parameter updates, early stopping, or checkpoint selection.
+```bash
+python scripts/make_capacity_configs.py
+```
 
-To reproduce another experiment, change only the configuration path. Do not manually edit a
-shared configuration during a run.
+Generates a wider convolutional causal arm, 95,237 parameters against the baseline's 30,757, used
+to test whether the protocol effect depends on capacity. No control arm is needed, because the
+protocol gain is a within-arm quantity.
 
-## 6. Held-out evaluation
+## 6. Held-out evaluation, both protocols
 
-Evaluation is run once per fold. On Bash-compatible shells:
+Every experiment is scored twice from the same weights.
+
+**Tiled** is the default. The recording is covered by non-overlapping context windows and every
+position of every window contributes one scored prediction, so the opening seconds of each window
+are predicted from a partly empty history.
+
+**Streaming** recomputes every `N` seconds against a full context buffer and keeps only the
+freshest `N` predictions, so every second after the first window is decided with at least
+`sequence_length - N` seconds of real history. This is what a deployment does.
 
 ```bash
 for fold in 0 1 2 3 4; do
-  python -m src.eval.evaluate --config configs/sleep78_causal.yaml --fold "$fold"
+  python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold "$fold"
+  python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold "$fold" --stream_stride 30
 done
 ```
 
-On Windows PowerShell:
+On PowerShell:
 
 ```powershell
 0..4 | ForEach-Object {
-    python -m src.eval.evaluate --config configs/sleep78_causal.yaml --fold $_
+    python -m src.eval.evaluate --config configs\sleep78_streaming_causal.yaml --fold $_
+    python -m src.eval.evaluate --config configs\sleep78_streaming_causal.yaml --fold $_ --stream_stride 30
 }
 ```
 
-The evaluator produces a classification report for each fold and appends one row per fold to
-`test_metrics_summary.csv`. Start with a new log directory or remove a disposable duplicate
-summary before repeating evaluation; the evaluator appends rather than replacing existing rows.
-Do not delete or overwrite curated files under `results/`.
+Streaming costs `sequence_length / N` forward passes, so four times a tiled pass at 120 s context
+and stride 30. Results are written under a `_streamingN` suffix, so the two protocols sit side by
+side and neither overwrites the other. With `--stream_stride` equal to `sequence_length` the two
+coincide, apart from the trailing seconds tiling drops.
 
-The per-second metrics compare predictions against 30-second expert labels replicated to each
-second. The 30-second metrics majority-vote each group of 30 predictions for comparison with
-conventional epoch-level systems.
+The evaluator appends one row per fold to `test_metrics_summary.csv`. Start with a new log
+directory or delete a disposable duplicate before repeating evaluation; it appends rather than
+replacing. Never delete or overwrite curated files under `results/`.
+
+Per-second metrics compare predictions against 30-second expert labels replicated to each second.
+The 30-second metrics majority-vote each group of 30 predictions, which is what compares like for
+like against epoch-level systems.
 
 ### Saved predictions
 
 Each evaluation also writes `fold_N_predictions.npz` holding the per-second subject id, expert
-label, prediction and logits. Smoothing sweeps, per-subject confidence intervals, calibration and
-class-prior correction all read from it, so none of them require another pass over a checkpoint.
-Archive it with the run; `--no_save_predictions` skips it.
+label, prediction and logits. Smoothing sweeps, per-subject confidence intervals and the per-class
+breakdown all read from it, so none of them needs another pass over a checkpoint. Archive it with
+the run. `--no_save_predictions` skips it, at the cost of having to re-evaluate later.
 
-### Streaming evaluation
+## 7. Analysis, statistics and figures
 
-The default evaluation tiles each recording with non-overlapping windows, so the opening seconds
-of every window are predicted from a partly zero-padded history. A deployment does not restart
-its buffer that way. `--stream_stride N` recomputes every `N` seconds against a full context
-window and keeps only the freshest `N` predictions, so every second after the first window is
-decided with at least `sequence_length - N` seconds of real history:
+### The protocol excess, the decisive statistic
 
-```bash
-python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0 --stream_stride 30
-```
-
-Cost scales as `sequence_length / N` forward passes. Results are written under a `_streamingN`
-suffix (`test_metrics_summary_streaming30.csv` and so on) so the two modes sit side by side and
-neither overwrites the archived artifacts. With `--stream_stride` equal to `sequence_length` the
-two modes coincide, apart from the trailing seconds that tiling drops.
-
-## 7. Latency, smoothing, statistics, and figures
-
-Run the CPU throughput benchmark for a configuration:
+How much each arm gains from the protocol change, and how much larger that gain is for the causal
+arm. A within-arm quantity, so it does not require the two arms to be comparable.
 
 ```bash
-python -m src.eval.evaluate --config configs/sleep78_causal.yaml --benchmark
+python scripts/protocol_excess.py \
+  --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
+  --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
+  --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44 \
+  --label "Sleep-EDF-78, TCN" \
+  --out results/generated/protocol_excess_sleep78.md
 ```
 
-The reported `ms/sec` value is the time for a complete synthetic sequence divided by its length.
-Record total window time as well when describing latency, and distinguish this throughput measure
-from end-to-end streaming latency.
+It also reports the between-arm causality cost under each protocol, computed directly from the
+same folds rather than by subtracting rounded means. On the published directories it must return
++0.0314 with corrected t(14) = 12.69 for Sleep-EDF-78 and +0.0292 with t(14) = 6.48 for DOD-H;
+anything else means the script disagrees with the papers and must be fixed before it is used.
 
-Evaluate trailing-window smoothing using the trained causal checkpoints:
-
-```bash
-python sweep_smoothing.py --config configs/sleep78_causal.yaml \
-  --out results/generated/smoothing.md
-```
-
-Generate the archived statistical summary:
-
-```bash
-python analysis_stats.py --out results/generated/statistics.md
-```
-
-Run the same paired tests on any other run pair with `--pair NAME=causal_dir,noncausal_dir`
-(repeatable). For the streaming pilot:
-
-```bash
-python analysis_stats.py \
-  --pair "Sleep-EDF-78 streaming=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42" \
-  --out results/generated/statistics_streaming.md
-```
-
-When the same comparison has been repeated under several seeds, report the pooled paired test
-over all seeds x folds rather than three separate five-fold tests:
+### The between-arm cost, pooled across seeds
 
 ```bash
 python scripts/pool_seeds.py \
@@ -349,74 +268,234 @@ python scripts/pool_seeds.py \
   --out results/generated/statistics_streaming_pooled.md
 ```
 
-It refuses to run if a summary CSV lists a fold twice or if the two arms cover different folds,
-so a half-finished sweep cannot be reported as a complete one.
+Per-seed results use the naive paired test; the pooled figure uses the Nadeau-Bengio correction,
+which inflates the variance estimate by `1/n + 1/(k-1)`, here `1/15 + 1/4`, because folds pooled
+across seeds still share training subjects. Both scripts refuse to run if a summary CSV lists a
+fold twice or if the two arms cover different folds, so a half-finished sweep cannot be reported
+as a complete one.
 
-Generate figures (requires the processed data and referenced checkpoint for the hypnogram panel):
+`analysis_stats.py --pair NAME=causal_dir,noncausal_dir` reports any single run pair separately.
+
+### Accuracy against permitted latency
+
+One sweep yields accuracy at every buffer position without retraining, which is the mechanism
+evidence behind the protocol result.
 
 ```bash
-python make_figures.py \
-  --config configs/sleep78_causal.yaml \
-  --run results/sleep78_causal \
-  --checkpoint checkpoints_78causal/best_model_fold_0.pth \
-  --out figures
+python scripts/latency_sweep.py --config configs/sleep78_streaming_causal.yaml \
+  --stride 5 --out results/generated/latency_causal_s5.md
 ```
 
-Validate archived CSV structure without changing any files:
+Use stride 5 for Sleep-EDF-78. The unsuffixed archived files are stride 30 and mixing strides
+across datasets is not a fair comparison.
+
+### Reporting delay, per-second against epoch-level
 
 ```bash
+python scripts/boundary_latency.py logs_78streaming_causal_s42 \
+  --hold 10 --out results/generated/boundary_latency.md
+```
+
+Paths are positional. Both systems are charged for the evidence they need: a change counts as
+reported once the new stage has been held for `--hold` consecutive seconds, and an epoch-level
+system cannot emit the label for an epoch until that epoch has ended.
+
+### Per-class and gain-against-capacity
+
+```bash
+python scripts/per_class_breakdown.py
+python scripts/gain_vs_strength.py \
+  --arm "TCN causal, Sleep-EDF-78=logs_78streaming_causal_s42" \
+  --control "TCN control, Sleep-EDF-78=logs_78streaming_noncausal_s42" \
+  --out results/generated/gain_vs_strength.md
+```
+
+`gain_vs_strength.py` takes causal arms and control arms separately and correlates only the causal
+ones. Pooling both kinds would be circular: a control scores higher and gains less by
+construction.
+
+### Smoothing, throughput and figures
+
+```bash
+python sweep_smoothing.py --config configs/sleep78_streaming_causal.yaml \
+  --out results/generated/smoothing.md
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --benchmark
+python make_paper_figures.py
 python scripts/validate_results.py results
 ```
 
-## 8. Experiment provenance
+The benchmark's `ms/sec` is the time for a complete synthetic sequence divided by its length.
+Record total window time as well, and distinguish this throughput measure from end to end
+streaming latency.
 
-The table links reproducible configurations to their curated results. Generated log and
-checkpoint directories are intentionally ignored by Git; selected reports and, where present,
-checkpoints are archived under `results/`.
+## 8. Whole experiments in one command
 
-| Experiment | Configuration | Seed | Context | Causal | Curated results |
-|---|---|---:|---:|:---:|---|
-| Sleep-EDF-20 baseline | `configs/default.yaml` | 42 | 60 s | yes | `results/run_a_baseline/` |
-| Sleep-EDF-20 longer context | `configs/run_b_context.yaml` | 42 | 120 s | yes | `results/run_b_context/` |
-| Sleep-EDF-20 extra TCN depth | `configs/run_c_depth.yaml` | 42 | 120 s | yes | `results/run_c_depth/` |
-| Sleep-EDF-20 non-causal, baseline depth | `configs/run_d2_noncausal.yaml` | 42 | 120 s | no | `results/run_d2_noncausal/` |
-| Sleep-EDF-20 non-causal, extra depth | `configs/run_d_noncausal.yaml` | 42 | 120 s | no | `results/run_d_noncausal/` |
-| Sleep-EDF-78 causal | `configs/sleep78_causal.yaml` | 42 | 120 s | yes | `results/sleep78_causal/` |
-| Sleep-EDF-78 causal | `configs/sleep78_causal_s43.yaml` | 43 | 120 s | yes | `results/sleep78_causal_s43/` |
-| Sleep-EDF-78 causal | `configs/sleep78_causal_s44.yaml` | 44 | 120 s | yes | `results/sleep78_causal_s44/` |
-| Sleep-EDF-78 non-causal | `configs/sleep78_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_noncausal/` |
-| Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_noncausal_s43/` |
-| Sleep-EDF-78 non-causal | `configs/sleep78_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_noncausal_s44/` |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal.yaml` | 42 | 120 s | yes | `results/sleep78_streaming_causal_s42/` |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s43.yaml` | 43 | 120 s | yes | `results/sleep78_streaming_causal_s43/` |
-| Sleep-EDF-78 streaming causal | `configs/sleep78_streaming_causal_s44.yaml` | 44 | 120 s | yes | `results/sleep78_streaming_causal_s44/` |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal.yaml` | 42 | 120 s | no | `results/sleep78_streaming_noncausal_s42/` |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | 120 s | no | `results/sleep78_streaming_noncausal_s43/` |
-| Sleep-EDF-78 streaming non-causal | `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | 120 s | no | `results/sleep78_streaming_noncausal_s44/` |
+The PowerShell drivers under `runs/` chain training, both evaluation protocols, output checks and
+statistics for an entire experiment. Each waits for the GPU, skips anything already finished, and
+refuses to compute a statistic from an incomplete run, so they are safe to leave unattended and
+safe to restart.
 
-The streaming rows use trailing-window normalization and `data/processed78_streaming`. Every
-other row uses the epoch z-score and `data/processed78`. The two regimes are never mixed in one
-processed directory.
+| Driver | What it runs |
+|---|---|
+| `runs/run_gru_s42.ps1` | Recurrent arms, seed 42, both protocols, the excess |
+| `runs/run_gru_s4344.ps1` | Seeds 43 and 44, then the three-seed pooled statistics and the buffer sweeps |
+| `runs/run_capacity_check.ps1` | The wider causal arm and the gain-against-capacity table |
+| `runs/reproduce.ps1` | **Every reported number, from the committed CSVs, without retraining** |
+| `runs/check_repo.ps1` | Repository hygiene gate: tests, lint, links, stray artifacts |
 
-`configs/sleep78_ctx300.yaml` defines a 300-second causal experiment, but this repository does
-not contain a matching curated result directory. `results/trimmed/` and
-`results/baseline_untrimmed/` are legacy preprocessing-ablation archives and are not mapped to
-complete dedicated configuration files in the current tree; treat them as supporting artifacts,
-not one-command reproductions.
+```powershell
+powershell -ExecutionPolicy Bypass -File runs\reproduce.ps1
+```
 
-## 9. Run record checklist
+That writes into `results/generated/`. Diff against the committed copies in `results/`; every
+script here is deterministic given the same inputs, so a disagreement is a bug rather than a
+rounding difference.
 
-For every new experiment, preserve the following together:
+## 9. Experiment provenance
 
-- Git commit hash and configuration file;
-- random seed and subject split YAML files;
-- Python, dependency, CUDA, and hardware versions;
-- preprocessing method and processed-data manifest;
-- per-epoch training history and selected checkpoint epoch;
-- held-out per-fold predictions or reports;
-- per-fold metrics and their aggregation procedure;
-- exact commands used for post-processing and figures;
-- any failed, interrupted, or excluded runs and the reason for exclusion.
+Generated log and checkpoint directories are gitignored. Curated per-fold outputs are archived
+under `results/`.
 
-Keeping this record makes it possible to distinguish an exact reproduction from a method change
-that requires a new result set.
+### Current line of work, trailing-window normalisation
+
+| Experiment | Configuration | Seed | Curated results |
+|---|---|---:|---|
+| Sleep-EDF-78, conv., causal | `configs/sleep78_streaming_causal.yaml` | 42 | `results/sleep78_streaming_causal/` |
+| Sleep-EDF-78, conv., causal | `configs/sleep78_streaming_causal_s43.yaml` | 43 | `results/sleep78_streaming_causal_s43/` |
+| Sleep-EDF-78, conv., causal | `configs/sleep78_streaming_causal_s44.yaml` | 44 | `results/sleep78_streaming_causal_s44/` |
+| Sleep-EDF-78, conv., control | `configs/sleep78_streaming_noncausal.yaml` | 42 | `results/sleep78_streaming_noncausal/` |
+| Sleep-EDF-78, conv., control | `configs/sleep78_streaming_noncausal_s43.yaml` | 43 | `results/sleep78_streaming_noncausal_s43/` |
+| Sleep-EDF-78, conv., control | `configs/sleep78_streaming_noncausal_s44.yaml` | 44 | `results/sleep78_streaming_noncausal_s44/` |
+| Sleep-EDF-78, recurrent, causal | `configs/sleep78_streaming_gru.yaml` | 42 | `results/gru_s42/` |
+| Sleep-EDF-78, recurrent, causal | `configs/sleep78_streaming_gru_s43.yaml` | 43 | `results/gru_s43/` |
+| Sleep-EDF-78, recurrent, causal | `configs/sleep78_streaming_gru_s44.yaml` | 44 | `results/gru_s44/` |
+| Sleep-EDF-78, recurrent, control | `configs/sleep78_streaming_gru_noncausal.yaml` | 42 | `results/gru_noncausal_s42/` |
+| Sleep-EDF-78, recurrent, control | `configs/sleep78_streaming_gru_noncausal_s43.yaml` | 43 | `results/gru_noncausal_s43/` |
+| Sleep-EDF-78, recurrent, control | `configs/sleep78_streaming_gru_noncausal_s44.yaml` | 44 | `results/gru_noncausal_s44/` |
+| Sleep-EDF-78, conv. wide, causal | `configs/sleep78_streaming_causal_wide.yaml` | 42 | `results/causal_wide_s42/` |
+| DOD-H, conv., causal | `configs/dodh/causal_s42.yaml` | 42 | `results/dodh_causal_s42/` |
+| DOD-H, conv., causal | `configs/dodh/causal_s43.yaml` | 43 | `results/dodh_causal_s43/` |
+| DOD-H, conv., causal | `configs/dodh/causal_s44.yaml` | 44 | `results/dodh_causal_s44/` |
+| DOD-H, conv., control | `configs/dodh/noncausal_s42.yaml` | 42 | `results/dodh_noncausal_s42/` |
+| DOD-H, conv., control | `configs/dodh/noncausal_s43.yaml` | 43 | `results/dodh_noncausal_s43/` |
+| DOD-H, conv., control | `configs/dodh/noncausal_s44.yaml` | 44 | `results/dodh_noncausal_s44/` |
+
+Every row above uses 120 s of context and is scored under both protocols. The Sleep-EDF rows read
+`data/processed78_streaming`.
+
+### Earlier runs, per-epoch z-scoring, kept for verifiability
+
+| Experiment | Configuration | Seed | Curated results |
+|---|---|---:|---|
+| Sleep-EDF-78 causal | `configs/sleep78_causal{,_s43,_s44}.yaml` | 42, 43, 44 | `results/sleep78_causal{,_s43,_s44}/` |
+| Sleep-EDF-78 non-causal | `configs/sleep78_noncausal{,_s43,_s44}.yaml` | 42, 43, 44 | `results/sleep78_noncausal{,_s43,_s44}/` |
+| Sleep-EDF-20 baseline, 60 s | `configs/default.yaml` | 42 | `results/run_a_baseline/` |
+| Sleep-EDF-20 longer context | `configs/run_b_context.yaml` | 42 | `results/run_b_context/` |
+| Sleep-EDF-20 extra depth | `configs/run_c_depth.yaml` | 42 | `results/run_c_depth/` |
+| Sleep-EDF-20 non-causal, baseline depth | `configs/run_d2_noncausal.yaml` | 42 | `results/run_d2_noncausal/` |
+| Sleep-EDF-20 non-causal, extra depth | `configs/run_d_noncausal.yaml` | 42 | `results/run_d_noncausal/` |
+
+These read `data/processed78` and `data/processed`. They are not mixed with the streaming runs in
+any directory or any table.
+
+### Not one-command reproductions
+
+`configs/sleep78_ctx300.yaml` and `configs/sleep78_streaming_causal_w15.yaml` and `_w120.yaml`
+define context-length and normalisation-window variants with no matching curated result
+directory. `results/trimmed/` and `results/baseline_untrimmed/` are preprocessing-ablation
+archives predating the current configuration layout. Treat all of these as supporting artifacts.
+
+Baseline reproductions of three published models are documented separately in
+[`results/baselines/README.md`](results/baselines/README.md), including the defects that bound
+what each run can be cited for.
+
+## 10. Run record checklist
+
+For every new experiment, preserve together:
+
+- the git commit hash and the configuration file
+- the random seed, the split seed, and the subject split YAML files
+- Python, dependency, CUDA and hardware versions
+- the preprocessing method and the processed-data manifest
+- the per-epoch training history and the selected checkpoint epoch
+- held-out per-fold predictions or reports, under both protocols
+- per-fold metrics and their aggregation procedure
+- the exact commands used for post-processing and figures
+- any failed, interrupted or excluded run, and why it was excluded
+
+Keeping this record is what distinguishes an exact reproduction from a method change that requires
+a new result set.
+
+---
+
+## Design decisions that affect every run
+
+### The preprocessing manifest
+
+Every preprocessing run writes `preprocessing_manifest.json` into its `processed_dir`, recording
+the config, the normalisation method and window, the number of PSG files found, paired, written
+and failed, the class distribution, and per-subject second counts. Archive it with the run. It is
+the evidence for the data half of the run record, and it is how a reviewer confirms which
+normalisation produced a given result set. The DOD-H equivalent is
+`results/dodh_preprocessing_manifest.json`.
+
+### Separating the partition from the initialisation
+
+`train.seed` seeds the weight initialisation and, historically, also the subject shuffle that
+decides the folds. Seeds 42, 43 and 44 therefore produced three different partitions rather than
+three initialisations of one partition, and in those runs the two effects cannot be separated:
+they are three repeats of five-fold cross-validation over fifteen distinct partitions. Analyses of
+that data must account for train-set overlap between repeats rather than treating the fifteen
+cells as independent, which is exactly what the Nadeau-Bengio correction does.
+
+`train.split_seed` pins the partition independently:
+
+```yaml
+train:
+  seed: 43           # weight initialisation
+  split_seed: 42     # fold layout; hold fixed to vary only the initialisation
+```
+
+The two sit together so it is visible that they are separate knobs. `data.split_seed` is accepted
+as an alias and `train.split_seed` wins if both are present, so do not set both. Omitting
+`split_seed` uses `train.seed`, so every configuration written before this option existed produces
+exactly the splits it always did. Each `split_fold_N.yaml` records both seeds alongside the subject
+lists, so the partition behind a result is recoverable from the run itself.
+
+### Continuity of the stored signal
+
+Preprocessing drops unscored epochs and concatenates a subject's two nights, so a stored array is a
+sequence of discontinuous stretches rather than one recording. Each `.npz` carries
+`segment_starts`, and the manifest reports how many segments each subject has.
+
+| Option | Effect |
+|---|---|
+| `data.respect_boundaries` | Drop context windows spanning a night join or an unscored-epoch gap |
+| `data.cover_tail` | Add a final window flush with the end of the recording rather than discarding the trailing `(len - seq_len) % stride` seconds |
+
+Both are off by default so the archived windowing is unchanged. `respect_boundaries` needs
+`segment_starts` and raises rather than silently doing nothing on directories processed before that
+metadata existed.
+
+### The normaliser resets at every recording
+
+`StreamingZScore` is reset at the start of each recording, including between a subject's two
+nights. This is deliberate, since a device powering on has no history either, but it means the
+first seconds of every night are normalised against a partial window rather than a full 30 s one,
+and that is worth one sentence in a methods section rather than leaving a reviewer to find it.
+
+It is safe rather than merely tolerable. Within a trailing window holding `n` samples the largest
+attainable magnitude is `sqrt(n - 1)`, so the cold start cannot produce an infinity or a NaN
+however few samples have been seen, and `causal_rolling_zscore` returns 0 while the standard
+deviation is below `eps`. `scripts/verify_causality.py` checks that bound on every run and reports
+the measured maximum against it, and
+`tests/test_end_to_end_causality.py::test_normalized_output_is_finite_including_warmup` asserts it
+directly.
+
+### BatchNorm during training
+
+The convolutional front end uses batch normalisation, which pools over the time axis within a
+window during training. Inference uses running statistics, so the deployed path is causal and the
+perturbation test passes in evaluation mode, but the learned weights are not independent of
+within-window future samples. Both arms share this property, so it does not affect any comparison
+reported here. It is stated because a careful reviewer will look for it.
