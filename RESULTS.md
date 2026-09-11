@@ -38,6 +38,30 @@ Two datasets differing in montage, sampling rate, scoring team, class balance, s
 recording length, and two architecture families sharing only the convolutional front end, agree
 on the penalty to the causal arm to within 0.001 kappa.
 
+### Across capacity
+
+The convolutional causal arm was retrained at 3.1 times the parameters, seed 42, five folds, to
+test whether the tiling penalty shrinks in a larger model.
+
+| Causal arm | Parameters | Tiled | Streaming | Gain |
+|---|---:|---|---|---|
+| GRU, Sleep-EDF-78 | 20,197 | 0.6601 | 0.6942 | +0.0342 |
+| TCN, Sleep-EDF-78 | 30,757 | 0.6634 | 0.6982 | +0.0348 |
+| TCN wide, Sleep-EDF-78 | 95,237 | 0.6535 | 0.6901 | +0.0365 |
+| TCN, DOD-H | 30,757 | 0.6567 | 0.6942 | +0.0374 |
+
+Four causal arms spanning two datasets, two architecture families and a 3.1-fold range in
+parameter count give protocol gains between +0.0342 and +0.0374. The tiling penalty is not a
+function of model capacity.
+
+The wider model did not score better. Its tiled kappa is 0.6535 against the baseline's 0.6634,
+its best checkpoints arrived at epochs 4 to 8 while training accuracy kept climbing, and it
+overfits this corpus rather than improving on it. So this establishes that the penalty is
+independent of parameter count, and it does not establish that it is independent of model
+strength, because no stronger model was obtained. That limitation is recorded as open.
+
+Artifact: `results/causal_wide_s42/`, and `results/gain_vs_strength.md` for the arm-by-arm table.
+
 ## 2. The two protocols
 
 **Tiled.** The recording is covered by non-overlapping context windows and every position of
@@ -276,10 +300,11 @@ N1 F1 is 0.398 on Sleep-EDF-78, above AttnSleep's 0.36 and CareSleepNet's 0.32.
 
 ## 12. Limitations
 
-- Both of our models are small, 20k and 31k parameters, and their absolute kappa is below
-  published offline systems on the same corpora. Whether a stronger model pays the same tiling
-  penalty is not tested here. Two architecture families in the same capacity class do not settle
-  it.
+- Our models are small and their absolute kappa is below published offline systems on the same
+  corpora. Tripling the parameter count leaves the protocol gain unchanged, so the penalty is not
+  an artifact of parameter count, but the wider model also scored lower rather than higher, so no
+  genuinely stronger model was obtained and the question of whether one would pay the same penalty
+  stays open.
 - The streaming protocol denies the non-causal arm the lookahead that defines it, so that
   comparison is between deployment options rather than between architectures.
 - The non-causal arm is our own matched twin rather than a state-of-the-art offline model, so the
