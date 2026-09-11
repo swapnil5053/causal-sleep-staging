@@ -109,9 +109,12 @@ two architecture families sharing only the front end.
 ## 9. What is still open
 
 Both models are small and their absolute accuracy sits below published offline systems. A capacity
-check trained the convolutional model at 3.1 times the parameters; it overfit rather than
-improving, so the question of whether a genuinely stronger model pays the same tiling penalty is
-recorded as open rather than answered.
+check retrained the convolutional causal arm at 3.1 times the parameters. Its protocol gain came
+out at +0.0365, in line with the other three arms, so the penalty is not a function of parameter
+count. But the wider model scored lower rather than higher, 0.6535 tiled against 0.6634, with its
+best checkpoints arriving at epochs 4 to 8 while training accuracy kept climbing. It overfits this
+corpus. So capacity is settled and strength is not, and that is recorded as open rather than
+answered.
 
 The streaming protocol still denies the non-causal arm its lookahead. At matched latency the two
 datasets disagree, and both outcomes are reported.
