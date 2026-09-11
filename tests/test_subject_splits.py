@@ -1,6 +1,6 @@
 import unittest
 
-from src.data.dataset import get_cv_splits, get_subject_splits
+from src.data.dataset import get_cv_splits, get_subject_splits, resolve_split_seed
 
 
 class SubjectSplitTests(unittest.TestCase):
@@ -56,6 +56,50 @@ class SubjectSplitTests(unittest.TestCase):
         second = get_cv_splits(self.subject_ids, num_folds=5, fold_idx=2, seed=42)
 
         self.assertEqual(first, second)
+
+    def test_different_seeds_produce_different_partitions(self):
+        """The reason data.split_seed exists: the seed really does move the folds."""
+        with_42 = get_cv_splits(self.subject_ids, num_folds=5, fold_idx=0, seed=42)[2]
+        with_43 = get_cv_splits(self.subject_ids, num_folds=5, fold_idx=0, seed=43)[2]
+
+        self.assertNotEqual(set(with_42), set(with_43))
+
+
+class SplitSeedResolutionTests(unittest.TestCase):
+    """`data.split_seed` decides the partition; the training seed decides initialisation."""
+
+    def setUp(self):
+        self.subject_ids = [f"{subject:02d}" for subject in range(20)]
+
+    def test_defaults_to_the_training_seed(self):
+        """Configs written before split_seed existed must keep their archived splits."""
+        for seed in (42, 43, 44):
+            with self.subTest(seed=seed):
+                config = {"data": {"seed": seed}, "train": {"seed": seed}}
+                self.assertEqual(resolve_split_seed(config), seed)
+
+    def test_split_seed_overrides_the_training_seed(self):
+        config = {"data": {"seed": 42, "split_seed": 42}, "train": {"seed": 44}}
+
+        self.assertEqual(resolve_split_seed(config), 42)
+
+    def test_training_seed_alone_cannot_move_the_folds(self):
+        """Pinning split_seed must make three seeds share one partition."""
+        pinned = [
+            get_cv_splits(
+                self.subject_ids,
+                num_folds=5,
+                fold_idx=0,
+                seed=resolve_split_seed({"data": {"split_seed": 42}, "train": {"seed": seed}}),
+            )
+            for seed in (42, 43, 44)
+        ]
+
+        self.assertEqual(pinned[0], pinned[1])
+        self.assertEqual(pinned[1], pinned[2])
+
+    def test_missing_train_section_falls_back_to_the_data_seed(self):
+        self.assertEqual(resolve_split_seed({"data": {"seed": 7}}), 7)
 
 
 if __name__ == "__main__":

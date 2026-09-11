@@ -4,6 +4,7 @@ from src.model.mrcnn import MultiResolutionCNN
 from src.model.temporal import TemporalModel
 from src.model.attention import CausalSelfAttention
 from src.model.classifier import Classifier
+from src.model.gru import GRUSequenceEncoder
 
 class SleepStagingModel(nn.Module):
     """
@@ -27,6 +28,9 @@ class SleepStagingModel(nn.Module):
         # Load hyperparameters from config dictionary or direct overrides
         model_cfg = config.get("model", {}) if config is not None else {}
         
+        architecture = kwargs.get("architecture", model_cfg.get("architecture", "tcn_attention"))
+        self.architecture = architecture
+
         mrcnn_ch1 = kwargs.get("mrcnn_channels_1", model_cfg.get("mrcnn_channels_1", 16))
         mrcnn_ch2 = kwargs.get("mrcnn_channels_2", model_cfg.get("mrcnn_channels_2", 16))
         
@@ -57,23 +61,40 @@ class SleepStagingModel(nn.Module):
             causal=causal
         )
         
-        # 2. Temporal Convolutional Network
-        self.temporal = TemporalModel(
-            in_channels=self.mrcnn.out_channels,
-            channel_list=tcn_channels,
-            kernel_size=tcn_kernel,
-            dilations=tcn_dilations,
-            dropout=tcn_dropout,
-            causal=causal
-        )
-        
-        # 3. Causal Multi-Head Self-Attention
-        self.attention = CausalSelfAttention(
-            embed_dim=self.temporal.out_channels,
-            num_heads=attn_heads,
-            dropout=attn_dropout,
-            causal=causal
-        )
+        # 2 and 3. Sequence encoder. The default is the dilated causal TCN followed by
+        # masked self-attention. "gru" swaps in a recurrent encoder, which is a second
+        # architecture family for the same causality and protocol measurements. Both
+        # encoders take and return (batch, channels, seconds), so forward is unchanged;
+        # nn.Identity stands in for the attention layer in the recurrent case.
+        if architecture == "gru":
+            self.temporal = GRUSequenceEncoder(
+                input_size=self.mrcnn.out_channels,
+                hidden_size=kwargs.get("gru_hidden_size", model_cfg.get("gru_hidden_size", 32)),
+                num_layers=kwargs.get("gru_num_layers", model_cfg.get("gru_num_layers", 2)),
+                dropout=kwargs.get("gru_dropout", model_cfg.get("gru_dropout", 0.1)),
+                causal=causal
+            )
+            self.attention = nn.Identity()
+        elif architecture == "tcn_attention":
+            self.temporal = TemporalModel(
+                in_channels=self.mrcnn.out_channels,
+                channel_list=tcn_channels,
+                kernel_size=tcn_kernel,
+                dilations=tcn_dilations,
+                dropout=tcn_dropout,
+                causal=causal
+            )
+            self.attention = CausalSelfAttention(
+                embed_dim=self.temporal.out_channels,
+                num_heads=attn_heads,
+                dropout=attn_dropout,
+                causal=causal
+            )
+        else:
+            raise ValueError(
+                f"Unknown model architecture {architecture!r}; "
+                "expected 'tcn_attention' or 'gru'"
+            )
         
         # 4. Final Staging Classifier
         self.classifier = Classifier(
