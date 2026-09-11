@@ -73,7 +73,7 @@ def parse_seed(argument):
 
 
 def gains(directory, tiled_name, streaming_name):
-    """Return {fold: kappa_streaming - kappa_tiled} for one run directory."""
+    """Return (per-fold gain, per-fold tiled kappa, per-fold streaming kappa)."""
     tiled = read_kappas(directory, tiled_name)
     streaming = read_kappas(directory, streaming_name)
     if set(tiled) != set(streaming):
@@ -81,7 +81,7 @@ def gains(directory, tiled_name, streaming_name):
             f"{directory}: folds differ between protocols "
             f"(tiled {sorted(tiled)}, streaming {sorted(streaming)}). Evaluate every fold "
             f"under both protocols before pooling.")
-    return {f: streaming[f] - tiled[f] for f in tiled}
+    return {f: streaming[f] - tiled[f] for f in tiled}, tiled, streaming
 
 
 def main():
@@ -106,9 +106,17 @@ def main():
     noncausal_gains = []
     excesses = []
 
+    tiled_difference = []
+    streaming_difference = []
+    causal_tiled_all = []
+    control_tiled_all = []
+    causal_streaming_all = []
+    control_streaming_all = []
+
     for name, causal_dir, noncausal_dir in args.seed:
-        causal = gains(causal_dir, tiled_name, streaming_name)
-        noncausal = gains(noncausal_dir, tiled_name, streaming_name)
+        causal, causal_tiled, causal_streaming = gains(causal_dir, tiled_name, streaming_name)
+        noncausal, control_tiled, control_streaming = gains(
+            noncausal_dir, tiled_name, streaming_name)
         if set(causal) != set(noncausal):
             raise ValueError(
                 f"Seed {name}: folds differ between arms "
@@ -118,6 +126,12 @@ def main():
         seed_excess = [causal[f] - noncausal[f] for f in folds]
         causal_gains.extend(causal[f] for f in folds)
         noncausal_gains.extend(noncausal[f] for f in folds)
+        tiled_difference.extend(causal_tiled[f] - control_tiled[f] for f in folds)
+        streaming_difference.extend(causal_streaming[f] - control_streaming[f] for f in folds)
+        causal_tiled_all.extend(causal_tiled[f] for f in folds)
+        control_tiled_all.extend(control_tiled[f] for f in folds)
+        causal_streaming_all.extend(causal_streaming[f] for f in folds)
+        control_streaming_all.extend(control_streaming[f] for f in folds)
         excesses.extend(seed_excess)
         per_seed.append({
             "name": name,
@@ -173,9 +187,27 @@ def main():
     if len(seed_means) > 1:
         lines.append(f"- Per-seed range: {min(seed_means):+.4f} to {max(seed_means):+.4f}")
     lines.append("")
+    lines.append("## Cost of causality under each protocol")
+    lines.append("")
+    lines.append("The between-arm difference, computed directly from the same folds rather than")
+    lines.append("by subtracting the rows above. A negative value means the causal arm scores lower.")
+    lines.append("")
+    lines.append("| Protocol | Causal | Non-causal | Difference | Causal loses | Corrected t | p |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for protocol, diffs, causal_mean, control_mean in (
+            ("Tiled", np.asarray(tiled_difference, dtype=float),
+             np.mean(causal_tiled_all), np.mean(control_tiled_all)),
+            ("Streaming", np.asarray(streaming_difference, dtype=float),
+             np.mean(causal_streaming_all), np.mean(control_streaming_all))):
+        t_p, p_p, _ = nadeau_bengio_t_test(diffs, k_folds=k_folds)
+        loses = int((diffs < 0).sum())
+        lines.append(f"| {protocol} | {causal_mean:.4f} | {control_mean:.4f} | "
+                     f"{diffs.mean():+.4f} | {loses}/{diffs.size} | {t_p:.2f} | {p_p:.3g} |")
+    lines.append("")
     lines.append("Each gain is a within-arm quantity: the same trained weights scored on the "
                  "same held-out seconds under two protocols. The excess therefore does not "
-                 "depend on the two arms being comparable to each other.")
+                 "depend on the two arms being comparable to each other. The table above does, "
+                 "which is why it is the weaker of the two measurements.")
 
     report = "\n".join(lines) + "\n"
 
