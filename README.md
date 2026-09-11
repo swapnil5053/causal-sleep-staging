@@ -304,24 +304,20 @@ here.
 Capstone project at PES University, PW25_BJD_21, supervised by
 [Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
 
-Contributions follow the pattern of a CRediT statement, ordered by the scale of the
-contribution.
+Contributions follow the pattern of a CRediT statement, ordered by scale.
 
 - **[Swapnil S](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols
-  and the within-arm protocol estimand the central result rests on, the DOD-H replication,
-  buffer-position and boundary-latency measurement, the second-architecture integration with its
-  parameter-matched control, the capacity check, the revision and repair of contributed work
+  and the within-arm estimand the central result rests on. The DOD-H replication,
+  buffer-position and boundary-latency measurement, the second-architecture integration and its
+  parameter-matched control, and the capacity check. Revision and repair of contributed work
   across branches, the release engineering of this repository, and the manuscripts.
 - **[Jahnvi R](https://github.com/jahnvi1504):** conceptualisation and the initial codebase. The
-  convolutional model architecture, loss function design, the first streaming-safe causal
-  preprocessing implementation, the causality and subject-split test suite, the architecture and
-  reproduction documentation, and the recurrent second-architecture variant.
+  convolutional architecture, loss design, the first streaming-safe causal preprocessing, the
+  causality and subject-split test suite, the architecture and reproduction documentation, and
+  the recurrent second-architecture variant.
 - **[Shreeya Methuku](https://github.com/shreeya-methuku):** the warm-started evaluation that
-  first measured the window-boundary artifact, which is the observation this work is built on.
-  The sample-at-a-time streaming demonstration, separation of the cross-validation split seed
-  from the initialisation seed, per-subject scoring and pairing, and literature review.
+  first measured the window-boundary artifact, the sample-at-a-time streaming demonstration, and
+  separation of the cross-validation split seed from the initialisation seed.
 - **[Shreshtha Dixit](https://github.com/shreshtha-dixit):** the Nadeau-Bengio corrected pooled
-  statistics used throughout, the per-class decomposition of the causality cost, the seed and
-  split overlap simulation, the corrected CPU latency benchmark, and literature review.
-- **[Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en):**
-  supervision and project guidance.
+  statistics, the per-class decomposition of the causality cost, the seed and split overlap
+  simulation, and the corrected CPU latency benchmark.
