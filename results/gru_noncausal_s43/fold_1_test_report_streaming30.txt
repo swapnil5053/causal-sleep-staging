@@ -1,0 +1,32 @@
+Fold 1 held-out test results
+Test subjects: ['73', '72', '33', '05', '29', '16', '44', '46', '23', '20', '25', '14', '19', '27', '77', '41']
+Evaluation: streaming, 30 s stride over a 120 s buffer
+Overall Accuracy: 0.7852
+Cohen's Kappa:    0.7106
+Macro F1-Score:   0.7325
+
+Aggregated to 30s epochs (39,665 epochs):
+Accuracy: 0.7894  Kappa: 0.7159  Macro F1: 0.7371
+
+Per-class F1: Wake (W)=0.900, N1=0.458, N2=0.822, N3=0.718, REM=0.764
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    Wake (W)       0.96      0.85      0.90    383700
+          N1       0.43      0.49      0.46    136140
+          N2       0.86      0.79      0.82    430290
+          N3       0.68      0.76      0.72     69330
+         REM       0.68      0.88      0.76    170490
+
+    accuracy                           0.79   1189950
+   macro avg       0.72      0.75      0.73   1189950
+weighted avg       0.80      0.79      0.79   1189950
+
+Confusion Matrix (Rows=True, Cols=Predicted):
+      W    N1    N2    N3   REM
+Wake (W) 326717 44770  3009   423  8781
+N1    10974 67038 29829   514 27785
+N2     1716 31860 338739 23317 34658
+N3       95   341 16439 52402    53
+REM    2520 12545  5966     0 149459
