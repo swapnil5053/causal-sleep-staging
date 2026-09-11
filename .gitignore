@@ -83,3 +83,8 @@ checkpoints_sweep_*/
 
 # DOD-H / DOD-O raw archives and extracted h5 (tens of GB, never committed)
 data/dod*/
+
+# Unattended run transcripts
+*.log
+
+BRANCH_NOTES.md
