@@ -8,10 +8,10 @@ and to output stability.
 The filter is causal: the label at second t is the mode of predictions over [t-w+1, t], so it
 uses only past predictions and preserves the real-time property.
 
-    python sweep_smoothing.py --config configs/sleep78_causal.yaml
-    python sweep_smoothing.py --config configs/run_b_context.yaml \
+    python scripts/sweep_smoothing.py --config configs/sleep78_causal.yaml
+    python scripts/sweep_smoothing.py --config configs/run_b_context.yaml \
         --checkpoint_dir checkpoints_runB --folds 0 1 2 3 4
-    python sweep_smoothing.py --predictions logs_78streaming_causal_s42
+    python scripts/sweep_smoothing.py --predictions logs_78streaming_causal_s42
 
 Inference runs once per fold; the sweep is then almost free. With `--predictions` the
 inference does not run at all: the sweep reads the per-second predictions evaluation
@@ -117,7 +117,7 @@ def load_from_predictions(paths, pattern):
     Predictions stay grouped by subject so the mode filter never smooths across a
     recording boundary, which is the property the original path was careful about too.
     """
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from scripts.analyze_predictions import load_folds
 
     per_fold = {}

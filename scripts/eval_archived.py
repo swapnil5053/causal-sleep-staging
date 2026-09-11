@@ -25,9 +25,9 @@ rows per fold and every mean computed from that file is silently wrong. This scr
 to run when it finds that situation.
 
 Usage:
-    python eval_archived.py --check
-    python eval_archived.py --dry-run
-    python eval_archived.py
+    python scripts/eval_archived.py --check
+    python scripts/eval_archived.py --dry-run
+    python scripts/eval_archived.py
 """
 
 import argparse
@@ -154,8 +154,8 @@ def main():
     print("      --out results/boundary_latency.md")
     print("  python scripts/analyze_predictions.py logs_78streaming_causal_s42 \\")
     print("      --bootstrap --per-subject --prior-correction --out results/predictions.md")
-    print("  python sweep_smoothing.py --predictions logs_78streaming_causal_s42")
-    print("  python analysis_stats.py --pair")
+    print("  python scripts/sweep_smoothing.py --predictions logs_78streaming_causal_s42")
+    print("  python scripts/analysis_stats.py --pair")
 
 
 if __name__ == "__main__":

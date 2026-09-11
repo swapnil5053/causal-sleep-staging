@@ -1,7 +1,7 @@
 """Statistical treatment of the causality ablation.
 
-    python analysis_stats.py                    # writes results/generated/statistics.md
-    python analysis_stats.py --quiet            # file only, no console output
+    python scripts/analysis_stats.py                    # writes results/generated/statistics.md
+    python scripts/analysis_stats.py --quiet            # file only, no console output
 
 Reports, for both dataset sizes:
   - paired t-test on per-fold kappa (causal vs non-causal)

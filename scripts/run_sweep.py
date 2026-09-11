@@ -16,11 +16,11 @@ for the same fold and every mean computed from that file is then wrong in a way 
 downstream can detect. The skip logic below is what prevents it.
 
 Usage:
-    python run_sweep.py --preflight        # check the environment, run nothing
-    python run_sweep.py --dry-run          # print the plan, run nothing
-    python run_sweep.py                    # run it
-    python run_sweep.py --arm causal       # one arm only
-    python run_sweep.py --seeds 42         # one seed only
+    python scripts/run_sweep.py --preflight        # check the environment, run nothing
+    python scripts/run_sweep.py --dry-run          # print the plan, run nothing
+    python scripts/run_sweep.py                    # run it
+    python scripts/run_sweep.py --arm causal       # one arm only
+    python scripts/run_sweep.py --seeds 42         # one seed only
 """
 
 import argparse
@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 
-REPO = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(REPO, "configs", "sweep")   # overridable with --config_dir
 TAG = "sweep"                                        # marker required in output dir names
 RUN_LOG_DIR = os.path.join(REPO, "logs_sweep_runs")
@@ -303,12 +303,12 @@ def main():
         sys.exit(1)
     print("\nNext:")
     print("  python scripts/pool_seeds.py")
-    print("  python analysis_stats.py --pair")
+    print("  python scripts/analysis_stats.py --pair")
     for arm in arms:
         print(f"  python scripts/analyze_predictions.py logs_{TAG}_{arm}_s{args.seeds[0]} "
               f"--bootstrap --per-subject --prior-correction")
     print(f"  python scripts/boundary_latency.py logs_{TAG}_causal_s{args.seeds[0]} --hold 10")
-    print(f"  python sweep_smoothing.py --predictions logs_{TAG}_causal_s{args.seeds[0]}")
+    print(f"  python scripts/sweep_smoothing.py --predictions logs_{TAG}_causal_s{args.seeds[0]}")
 
 
 if __name__ == "__main__":

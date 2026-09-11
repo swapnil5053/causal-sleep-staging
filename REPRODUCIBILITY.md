@@ -121,7 +121,7 @@ Seconds, and no data required:
 
 ```bash
 python -m unittest discover -s tests -v
-python smoke_test.py configs/sleep78_streaming_causal.yaml
+python scripts/smoke_test.py configs/sleep78_streaming_causal.yaml
 python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
 ```
 
@@ -274,7 +274,8 @@ across seeds still share training subjects. Both scripts refuse to run if a summ
 fold twice or if the two arms cover different folds, so a half-finished sweep cannot be reported
 as a complete one.
 
-`analysis_stats.py --pair NAME=causal_dir,noncausal_dir` reports any single run pair separately.
+`scripts/analysis_stats.py --pair NAME=causal_dir,noncausal_dir` reports any single run pair
+separately.
 
 ### Accuracy against permitted latency
 
@@ -317,16 +318,33 @@ construction.
 ### Smoothing, throughput and figures
 
 ```bash
-python sweep_smoothing.py --config configs/sleep78_streaming_causal.yaml \
+python scripts/sweep_smoothing.py --config configs/sleep78_streaming_causal.yaml \
   --out results/generated/smoothing.md
 python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --benchmark
-python make_paper_figures.py
+python scripts/make_paper_figures.py
 python scripts/validate_results.py results
 ```
 
 The benchmark's `ms/sec` is the time for a complete synthetic sequence divided by its length.
 Record total window time as well, and distinguish this throughput measure from end to end
 streaming latency.
+
+### Every other script in the repository
+
+Nothing is tracked that does not produce something reported. The remaining scripts, and what each
+one is for:
+
+| Script | Produces |
+|---|---|
+| `scripts/streaming_demo.py` | The sample-at-a-time device path, and the proof that it reproduces the offline labels exactly over a held-out recording. This is the evidence behind the streaming-equivalence claim |
+| `scripts/analyze_predictions.py` | `results/predictions.md`: subject-level bootstrap, per-subject table, per-class breakdown by protocol |
+| `scripts/seed_overlap_simulation.py` | `results/seed_overlap.md`: the train-set overlap between seed repeats that motivates the corrected test |
+| `scripts/validate_results.py` | A structural check over every archived CSV, changing nothing |
+| `scripts/make_paper_figures.py` | `figures/fig_latency.png` and `fig_perclass.png`, the two-panel manuscript figures |
+| `scripts/run_sweep.py`, `scripts/eval_archived.py` | The matched sweep runner and archived-checkpoint evaluation that produced the three-seed streaming runs |
+| `scripts/sweep_smoothing.py` | The trailing-window smoothing sweep |
+| `scripts/analysis_stats.py` | `results/statistics.md`: the paired and pooled causality statistics |
+| `scripts/smoke_test.py` | Model, losses, optimiser, checkpoint round-trip and metrics on random batches, in seconds |
 
 ## 8. Whole experiments in one command
 

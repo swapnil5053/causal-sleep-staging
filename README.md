@@ -8,6 +8,14 @@ That holds through the network and through preprocessing, and it is verified by 
 rather than asserted. Two architectures are implemented, each with a matched non-causal control,
 and both are evaluated on two datasets under two evaluation protocols.
 
+## The question
+
+Can a lightweight single-channel EEG model classify sleep stages second by second while strictly
+denied access to future signal, and what does that constraint actually cost?
+
+The second half of that question turns out to depend on how the cost is measured, which is what
+this repository is mostly about.
+
 ## The result
 
 The cost of the causal constraint is mostly produced by how the models are scored, not by the
@@ -148,6 +156,11 @@ Both are scored to the five AASM classes in 30-second epochs. Each epoch label i
 across its 30 one-second targets, so supervision is at 1 Hz but its resolution is not: no public
 dataset carries genuine per-second expert scoring.
 
+Cross-validation is subject-wise: every recording from a subject is assigned to exactly one fold,
+so no subject contributes seconds to both the training and the test set of the same fold. Within a
+seed the causal and non-causal arms use byte-identical subject lists, so the comparison is paired
+exactly rather than approximately.
+
 ## Running
 
 ```bash
@@ -162,8 +175,9 @@ writes `fold_N_test_report.txt` and appends one row to `test_metrics_summary.csv
 streaming results carrying a `_streaming30` suffix. Both are needed before any statistic below
 can be computed.
 
-`smoke_test.py` runs the model, losses, optimiser, checkpoint round-trip and metrics on random
-batches in a few seconds, which catches shape and device errors before committing to a long run.
+`scripts/smoke_test.py` runs the model, losses, optimiser, checkpoint round-trip and metrics
+on random batches in a few seconds, which catches shape and device errors before committing to
+a long run.
 
 The PowerShell drivers under `runs/` chain training, both evaluation protocols, output checks and
 the statistics for a whole experiment, and are restartable: anything already finished is skipped.
@@ -187,6 +201,39 @@ reports a stage change, and `scripts/per_class_breakdown.py` gives the per-class
 `runs/reproduce.ps1` runs all of them in order. [REPRODUCIBILITY.md](REPRODUCIBILITY.md) maps
 every reported experiment to its config and its run directory.
 
+## Provenance of the reported numbers
+
+Every figure in this file comes from a per-fold CSV committed under `results/` and can be
+regenerated without retraining by `runs/reproduce.ps1`.
+
+| | |
+|---|---|
+| Cross-validation | subject-wise 5-fold, three seeds (42, 43, 44), 15 paired measurements per comparison |
+| Checkpoint selection | best validation Cohen's kappa; the test fold is used for nothing during training |
+| Pooled test | Nadeau-Bengio corrected resampled t-test, variance inflated by 1/n + 1/(k-1) |
+| Intervals | percentile bootstrap resampling whole subjects |
+| Hardware for the reported runs | RTX 4060 laptop GPU; the CPU latency figure is one thread of an Intel Core i9-14900HX |
+
+The CPU figure measures computational feasibility for real-time inference on a desktop-class
+processor. Latency and power on an embedded device were not measured and are not claimed.
+
+## Documentation
+
+Four documents, each linking down to the next. Nothing needs to be found by browsing.
+
+| Read | For |
+|---|---|
+| this page | what the work is, the result, how to run it |
+| [RESULTS.md](RESULTS.md) | every number, each linked to the file that produced it |
+| [REPRODUCIBILITY.md](REPRODUCIBILITY.md) | the exact command behind each experiment |
+| [docs/study_log.md](docs/study_log.md) | how the project got here, including the claim it abandoned |
+
+Below those: [docs/architecture.md](docs/architecture.md) and
+[docs/alternative_gru_architecture.md](docs/alternative_gru_architecture.md) describe the two
+models, [results/README.md](results/README.md) indexes every generated report and run directory,
+and [results/baselines/README.md](results/baselines/README.md) covers the three reproduced
+baselines.
+
 ## Layout
 
 ```
@@ -198,7 +245,7 @@ src/
   train/                   focal and weighted-CE losses, cross-validation loop
   eval/evaluate.py         both evaluation protocols, metrics, CPU latency benchmark
 configs/                   one file per experiment, each writing to its own run directory
-scripts/                   preprocessing, verification, statistics and analysis
+scripts/                   preprocessing, sweep drivers, verification, statistics, analysis
 runs/                      PowerShell drivers for whole experiments
 tests/                     unit tests, including end-to-end causality for both architectures
 results/                   curated per-fold CSVs and reports for every number reported
@@ -211,9 +258,10 @@ produce are, under `results/`.
 
 ## Limitations
 
-- Both models are small, 20k and 31k parameters, and their absolute kappa is below published
-  offline systems on the same corpora. Whether a stronger model pays the same tiling penalty is
-  not tested here. Two architecture families in the same capacity class do not settle it.
+- Our models are small and their absolute kappa is below published offline systems on the same
+  corpora. A third causal arm at 3.1 times the parameters gives the same protocol gain, so the
+  penalty is not an artifact of parameter count; but that arm scored lower rather than higher, so
+  whether a genuinely stronger model pays the same penalty is untested.
 - The streaming protocol denies the non-causal arm the lookahead that defines it, so that
   comparison is between deployment options rather than between architectures. At matched latency
   the two datasets disagree: lookahead is worth nothing on Sleep-EDF-78 and about 0.014 kappa at
@@ -256,13 +304,28 @@ here.
 Capstone project at PES University, PW25_BJD_21, supervised by
 [Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
 
-- [Swapnil S](https://github.com/swapnil5053): the evaluation protocols and the finding built
-  on them. End-to-end causal preprocessing and its streaming-equivalence proof. The DOD-H
-  replication. The statistical treatment: the within-arm estimand, the Nadeau-Bengio correction,
-  and the analysis scripts behind every reported number. Buffer-position, latency and
-  boundary-latency measurement. Integration, matched control and experiments for the second
-  architecture. The manuscripts.
-- [Jahnvi R](https://github.com/jahnvi1504): the initial codebase, the convolutional architecture
-  and loss design, the recurrent second-architecture variant, and publication positioning.
-- [Shreeya Methuku](https://github.com/shreeya-methuku): literature review and technical writing.
-- [Shreshtha Dixit](https://github.com/shreshtha-dixit): literature review and technical writing.
+Contributions follow the pattern of a CRediT statement: what each person originated, not how many
+commits carry their name. Work that was later revised or reimplemented is still credited to
+whoever originated it.
+
+- **[Jahnvi R](https://github.com/jahnvi1504):** conceptualisation and the initial codebase. The
+  convolutional model architecture, loss function design, the first streaming-safe causal
+  preprocessing implementation, the architecture and reproduction documentation, the causality and
+  subject-split test suite, the archived-results validator, and the recurrent second-architecture
+  variant.
+- **[Swapnil S](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols and
+  the within-arm protocol estimand built on them, the DOD-H replication, buffer-position and
+  boundary-latency measurement, the second-architecture integration with its parameter-matched
+  control, the capacity check, cross-branch integration and repair, and the manuscripts.
+- **[Shreeya Methuku](https://github.com/shreeya-methuku):** the warm-started evaluation that first
+  measured the window-boundary artifact, which is the observation this work is built on. The
+  sample-at-a-time streaming demonstration, separation of the cross-validation split seed from the
+  initialisation seed, per-subject scoring and subject-level pairing of the causality test,
+  recording-discontinuity handling in the loader, calibration and transition-response analyses,
+  recovery of the archived split files, literature review and manuscript preparation.
+- **[Shreshtha Dixit](https://github.com/shreshtha-dixit):** the Nadeau-Bengio corrected pooled
+  statistics used throughout, the per-class decomposition of the causality cost, the seed and split
+  overlap simulation, the corrected CPU latency benchmark, the causality analysis scripts,
+  literature review and manuscript preparation.
+- **[Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en):**
+  supervision and project guidance.

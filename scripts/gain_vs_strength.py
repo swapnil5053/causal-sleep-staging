@@ -1,32 +1,34 @@
-"""Does the tiling penalty shrink as the model gets stronger?
+"""Protocol gain against absolute score, across arms.
 
-The obvious objection to the protocol result is that these are small models which lean
-heavily on accumulated context, so a stronger model would not pay the cold-start cost.
-This answers it with the runs already on disk: for every arm, on every dataset, at every
-architecture and capacity, it reports that arm's own protocol gain alongside its absolute
-score, and tests whether the two are related.
+The predictable objection to the protocol result is that these models are small and lean on
+accumulated context, so a stronger model would not pay the cold-start penalty. This tabulates
+every arm on disk: its absolute score, and its own protocol gain.
 
-The gain is a within-arm quantity, the same weights scored on the same held-out seconds
-under two protocols, so arms that are not comparable to each other still contribute
-comparable gains.
+The gain is within-arm, the same weights scored on the same held-out seconds under two
+protocols, so arms that are not comparable to each other still contribute comparable gains.
+
+Causal and control arms are reported separately and only causal arms are correlated. Mixing them
+would be circular: a control arm scores higher and gains less by construction, so a correlation
+across the pooled set restates the causal-control difference rather than measuring anything about
+model strength.
 
     python scripts/gain_vs_strength.py \\
         --arm "TCN causal, Sleep-EDF-78=logs_78streaming_causal_s42" \\
-        --arm "TCN control, Sleep-EDF-78=logs_78streaming_noncausal_s42" \\
-        --arm "TCN causal, DOD-H=results/dodh_causal_s42" \\
-        --arm "TCN control, DOD-H=results/dodh_noncausal_s42" \\
+        --arm "TCN causal wide, Sleep-EDF-78=logs_78streaming_causal_wide_s42" \\
         --arm "GRU causal, Sleep-EDF-78=logs_78streaming_gru_s42" \\
-        --arm "GRU control, Sleep-EDF-78=logs_78streaming_gru_noncausal_s42" \\
+        --arm "TCN causal, DOD-H=results/dodh_causal_s42" \\
+        --control "TCN control, Sleep-EDF-78=logs_78streaming_noncausal_s42" \\
+        --control "GRU control, Sleep-EDF-78=logs_78streaming_gru_noncausal_s42" \\
+        --control "TCN control, DOD-H=results/dodh_noncausal_s42" \\
         --out results/generated/gain_vs_strength.md
 
 Each directory must hold both `test_metrics_summary.csv` and
 `test_metrics_summary_streaming<N>.csv`.
 
-Read the result conservatively. A handful of arms is a small sample and the absence of a
-relationship is not proof that one does not exist. What it does support is the narrower,
-honest sentence: across the models measured here, spanning a range of absolute scores and
-two architecture families, the protocol gain shows no tendency to shrink with model
-strength.
+A correlation here only means something if the causal arms actually differ in absolute score. The
+report states the span so that a flat one cannot be read as evidence of independence. At the time
+of writing the four causal arms span 0.008 kappa, which is no variation at all, so the table is
+descriptive and the correlation is reported only to show it resolves nothing.
 """
 
 import argparse
@@ -60,77 +62,91 @@ def parse_arm(argument):
     return label.strip(), directory.strip()
 
 
+def summarise(label, directory, kind, tiled_name, streaming_name):
+    tiled = read_kappas(directory, tiled_name)
+    streaming = read_kappas(directory, streaming_name)
+    if set(tiled) != set(streaming):
+        raise SystemExit(f"{directory}: folds differ between protocols")
+    folds = sorted(tiled)
+    return {
+        "label": label,
+        "kind": kind,
+        "folds": len(folds),
+        "tiled": float(np.mean([tiled[f] for f in folds])),
+        "streaming": float(np.mean([streaming[f] for f in folds])),
+        "gain": float(np.mean([streaming[f] - tiled[f] for f in folds])),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Protocol gain against absolute score, across arms.")
-    parser.add_argument("--arm", action="append", required=True, type=parse_arm,
-                        metavar="LABEL=DIR", help="One run directory. Repeatable.")
+        description="Protocol gain against absolute score, causal and control reported apart.")
+    parser.add_argument("--arm", action="append", default=[], type=parse_arm,
+                        metavar="LABEL=DIR", help="A causal arm. Repeatable.")
+    parser.add_argument("--control", action="append", default=[], type=parse_arm,
+                        metavar="LABEL=DIR", help="A non-causal control arm. Repeatable.")
     parser.add_argument("--stream_stride", type=int, default=30)
     parser.add_argument("--out", default=None)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
+    if not args.arm:
+        raise SystemExit("at least one --arm is required")
+
     tiled_name = "test_metrics_summary.csv"
     streaming_name = f"test_metrics_summary_streaming{args.stream_stride}.csv"
 
-    rows = []
-    fold_strength = []
-    fold_gain = []
-
-    for label, directory in args.arm:
-        tiled = read_kappas(directory, tiled_name)
-        streaming = read_kappas(directory, streaming_name)
-        if set(tiled) != set(streaming):
-            raise SystemExit(f"{directory}: folds differ between protocols")
-        folds = sorted(tiled)
-        gains = [streaming[f] - tiled[f] for f in folds]
-        rows.append({
-            "label": label,
-            "folds": len(folds),
-            "tiled": float(np.mean([tiled[f] for f in folds])),
-            "streaming": float(np.mean([streaming[f] for f in folds])),
-            "gain": float(np.mean(gains)),
-        })
-        fold_strength.extend(streaming[f] for f in folds)
-        fold_gain.extend(gains)
-
-    if len(rows) < 3:
-        raise SystemExit("need at least 3 arms for a correlation to mean anything")
-
-    arm_strength = np.array([r["streaming"] for r in rows])
-    arm_gain = np.array([r["gain"] for r in rows])
-    r_arm, p_arm = stats.pearsonr(arm_strength, arm_gain)
-    rho_arm, p_rho = stats.spearmanr(arm_strength, arm_gain)
-    r_fold, p_fold = stats.pearsonr(np.array(fold_strength), np.array(fold_gain))
+    causal = [summarise(lbl, d, "causal", tiled_name, streaming_name) for lbl, d in args.arm]
+    control = [summarise(lbl, d, "control", tiled_name, streaming_name) for lbl, d in args.control]
 
     lines = ["# Protocol gain against absolute score", ""]
     lines.append("Each row is one arm: one set of trained weights, scored on its own held-out")
     lines.append("seconds under both protocols. The gain is within-arm, so arms that are not")
     lines.append("comparable to each other still contribute comparable gains.")
     lines.append("")
-    lines.append("| Arm | Folds | Tiled | Streaming | Gain |")
-    lines.append("|---|---:|---|---|---|")
-    for r in sorted(rows, key=lambda x: x["streaming"]):
-        lines.append(f"| {r['label']} | {r['folds']} | {r['tiled']:.4f} | "
+    lines.append("| Arm | Kind | Folds | Tiled | Streaming | Gain |")
+    lines.append("|---|---|---:|---|---|---|")
+    for r in sorted(causal, key=lambda x: x["gain"]) + sorted(control, key=lambda x: x["gain"]):
+        lines.append(f"| {r['label']} | {r['kind']} | {r['folds']} | {r['tiled']:.4f} | "
                      f"{r['streaming']:.4f} | {r['gain']:+.4f} |")
     lines.append("")
-    lines.append(f"- Absolute score spans {arm_strength.min():.4f} to {arm_strength.max():.4f} kappa "
-                 f"across {len(rows)} arms")
-    lines.append(f"- Gain spans {arm_gain.min():+.4f} to {arm_gain.max():+.4f}")
-    lines.append(f"- Across arms: Pearson r = {r_arm:+.3f} (p = {p_arm:.3g}), "
-                 f"Spearman rho = {rho_arm:+.3f} (p = {p_rho:.3g})")
-    lines.append(f"- Across all {len(fold_gain)} individual folds: Pearson r = {r_fold:+.3f} "
-                 f"(p = {p_fold:.3g}); folds within an arm are not independent, so this is "
-                 f"descriptive only")
+
+    gains = np.array([r["gain"] for r in causal])
+    strength = np.array([r["streaming"] for r in causal])
+    span = float(strength.max() - strength.min())
+
+    lines.append(f"- {len(causal)} causal arms, gains {gains.min():+.4f} to {gains.max():+.4f}, "
+                 f"spread {gains.max() - gains.min():.4f}")
+    if control:
+        cg = np.array([r["gain"] for r in control])
+        lines.append(f"- {len(control)} control arms, gains {cg.min():+.4f} to {cg.max():+.4f}")
+    lines.append(f"- Absolute score across the causal arms spans {span:.4f} kappa, "
+                 f"{strength.min():.4f} to {strength.max():.4f}")
     lines.append("")
-    if p_arm > 0.05:
-        lines.append("No relationship is resolved at this sample size. That is not evidence of")
-        lines.append("absence: with this few arms the test has little power. The defensible")
-        lines.append("statement is that across the models measured here the protocol gain shows no")
-        lines.append("tendency to shrink as absolute score rises.")
+
+    if len(causal) < 3:
+        lines.append("Fewer than three causal arms, so no correlation is reported.")
     else:
-        lines.append("A relationship is resolved. Report it: the size of the tiling penalty is not")
-        lines.append("independent of how strong the model is, which bounds the claim.")
+        r_val, p_val = stats.pearsonr(strength, gains)
+        rho, p_rho = stats.spearmanr(strength, gains)
+        lines.append(f"- Across causal arms: Pearson r = {r_val:+.3f} (p = {p_val:.3g}), "
+                     f"Spearman rho = {rho:+.3f} (p = {p_rho:.3g})")
+        lines.append("")
+        if span < 0.02:
+            lines.append("**The correlation above resolves nothing and should not be quoted.** The")
+            lines.append("causal arms differ by less than 0.02 kappa in absolute score, so there is")
+            lines.append("no variation in strength to correlate a gain against. What the table does")
+            lines.append("support is the narrower statement: across these arms, spanning two")
+            lines.append("datasets, two architecture families and a range of capacities, the")
+            lines.append("protocol gain is nearly constant.")
+        else:
+            lines.append("The causal arms differ enough in absolute score for the correlation to")
+            lines.append("carry information. Read it with the sample size in mind.")
+
+    lines.append("")
+    lines.append("Control arms are excluded from the correlation deliberately. A control scores")
+    lines.append("higher and gains less by construction, so pooling the two kinds would restate the")
+    lines.append("causal and control difference as though it were a relationship with strength.")
 
     report = "\n".join(lines) + "\n"
     if not args.quiet:

@@ -12,7 +12,7 @@ the table cannot drift apart: both are the mean over three seeds x five folds.
 Series are distinguished by line style and marker as well as hue, so the figures survive
 greyscale printing and colour-vision deficiency; the palette is validated for CVD separation.
 
-    python make_paper_figures.py
+    python scripts/make_paper_figures.py
 """
 
 import argparse
