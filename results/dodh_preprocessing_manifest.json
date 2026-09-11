@@ -1,0 +1,368 @@
+{
+  "created_utc": "2026-09-08T17:16:19Z",
+  "dataset": "DOD-H",
+  "h5_dir": "data/dod/dodh",
+  "processed_dir": "data/processed_dodh",
+  "target_channel": "F3_M2",
+  "source_rate": 250,
+  "resample_rate": 100,
+  "wake_trim_minutes": null,
+  "normalization": {
+    "method": "causal_rolling",
+    "window_seconds": 30,
+    "eps": 1e-08
+  },
+  "end_to_end_causal_preprocessing": true,
+  "n_records": 25,
+  "n_subjects_written": 25,
+  "total_seconds": 739860,
+  "class_distribution": {
+    "W": {
+      "seconds": 91110,
+      "fraction": 0.123145
+    },
+    "N1": {
+      "seconds": 45150,
+      "fraction": 0.061025
+    },
+    "N2": {
+      "seconds": 356370,
+      "fraction": 0.481672
+    },
+    "N3": {
+      "seconds": 105420,
+      "fraction": 0.142486
+    },
+    "REM": {
+      "seconds": 141810,
+      "fraction": 0.191671
+    }
+  },
+  "subjects": {
+    "00": {
+      "source_file": "095d6e40-5f19-55b6-a0ec-6e0ad3793da0.h5",
+      "seconds": 35760,
+      "segments": 1,
+      "normalized_sd": 1.0288,
+      "class_counts": {
+        "W": 1770,
+        "N1": 810,
+        "N2": 20550,
+        "N3": 10230,
+        "REM": 2400
+      }
+    },
+    "01": {
+      "source_file": "0d79f4b1-e74f-5e87-8e42-f9dd7112ada5.h5",
+      "seconds": 28950,
+      "segments": 2,
+      "normalized_sd": 1.0981,
+      "class_counts": {
+        "W": 5520,
+        "N1": 2010,
+        "N2": 10830,
+        "N3": 4920,
+        "REM": 5670
+      }
+    },
+    "02": {
+      "source_file": "119f9726-eb4c-5a0e-a7bb-9e15256149a1.h5",
+      "seconds": 27960,
+      "segments": 1,
+      "normalized_sd": 1.0676,
+      "class_counts": {
+        "W": 1890,
+        "N1": 1110,
+        "N2": 15720,
+        "N3": 2730,
+        "REM": 6510
+      }
+    },
+    "03": {
+      "source_file": "14c012bd-65b0-56f5-bc74-2dffcea69837.h5",
+      "seconds": 29070,
+      "segments": 1,
+      "normalized_sd": 1.1069,
+      "class_counts": {
+        "W": 5040,
+        "N1": 4170,
+        "N2": 15150,
+        "N3": 240,
+        "REM": 4470
+      }
+    },
+    "04": {
+      "source_file": "18ede714-aba3-5ad8-bb1a-18fc9b1c4192.h5",
+      "seconds": 29850,
+      "segments": 1,
+      "normalized_sd": 1.1185,
+      "class_counts": {
+        "W": 4020,
+        "N1": 3270,
+        "N2": 14940,
+        "N3": 3390,
+        "REM": 4230
+      }
+    },
+    "05": {
+      "source_file": "1da3544e-dc5c-5795-adc3-f5068959211f.h5",
+      "seconds": 28650,
+      "segments": 1,
+      "normalized_sd": 1.0295,
+      "class_counts": {
+        "W": 3420,
+        "N1": 1800,
+        "N2": 15600,
+        "N3": 0,
+        "REM": 7830
+      }
+    },
+    "06": {
+      "source_file": "1fa6c401-d819-50f5-8146-a0bb9e2b2516.h5",
+      "seconds": 29580,
+      "segments": 1,
+      "normalized_sd": 1.035,
+      "class_counts": {
+        "W": 9600,
+        "N1": 1560,
+        "N2": 8130,
+        "N3": 5190,
+        "REM": 5100
+      }
+    },
+    "07": {
+      "source_file": "25a6b2b0-4d09-561b-82c6-f09bb271d3be.h5",
+      "seconds": 31890,
+      "segments": 1,
+      "normalized_sd": 1.0331,
+      "class_counts": {
+        "W": 1650,
+        "N1": 1500,
+        "N2": 20250,
+        "N3": 2070,
+        "REM": 6420
+      }
+    },
+    "08": {
+      "source_file": "37d0da97-9ae8-5413-b889-4e843ff35488.h5",
+      "seconds": 30330,
+      "segments": 1,
+      "normalized_sd": 1.0366,
+      "class_counts": {
+        "W": 9900,
+        "N1": 1380,
+        "N2": 9960,
+        "N3": 5250,
+        "REM": 3840
+      }
+    },
+    "09": {
+      "source_file": "3e842aa8-bcd9-521e-93a2-72124233fe2c.h5",
+      "seconds": 18600,
+      "segments": 1,
+      "normalized_sd": 1.0623,
+      "class_counts": {
+        "W": 4050,
+        "N1": 900,
+        "N2": 7920,
+        "N3": 2940,
+        "REM": 2790
+      }
+    },
+    "10": {
+      "source_file": "5bf0f969-304c-581e-949c-50c108f62846.h5",
+      "seconds": 28410,
+      "segments": 1,
+      "normalized_sd": 1.0589,
+      "class_counts": {
+        "W": 2730,
+        "N1": 1920,
+        "N2": 13680,
+        "N3": 4470,
+        "REM": 5610
+      }
+    },
+    "11": {
+      "source_file": "64959ac4-53b5-5868-a845-c7476e9fdf7b.h5",
+      "seconds": 29700,
+      "segments": 1,
+      "normalized_sd": 1.0787,
+      "class_counts": {
+        "W": 2790,
+        "N1": 1890,
+        "N2": 11850,
+        "N3": 6360,
+        "REM": 6810
+      }
+    },
+    "12": {
+      "source_file": "67fa8e29-6f4d-530e-9422-bbc3aca86ed0.h5",
+      "seconds": 31380,
+      "segments": 1,
+      "normalized_sd": 1.0389,
+      "class_counts": {
+        "W": 1230,
+        "N1": 3540,
+        "N2": 16620,
+        "N3": 4110,
+        "REM": 5880
+      }
+    },
+    "13": {
+      "source_file": "769df255-2284-50b3-8917-2155c759fbbd.h5",
+      "seconds": 27870,
+      "segments": 1,
+      "normalized_sd": 1.0522,
+      "class_counts": {
+        "W": 1710,
+        "N1": 1740,
+        "N2": 12270,
+        "N3": 4320,
+        "REM": 7830
+      }
+    },
+    "14": {
+      "source_file": "7ab8ff5f-a77f-567d-9882-f8bee0c3c9bf.h5",
+      "seconds": 29670,
+      "segments": 1,
+      "normalized_sd": 1.0378,
+      "class_counts": {
+        "W": 2040,
+        "N1": 1470,
+        "N2": 15990,
+        "N3": 5610,
+        "REM": 4560
+      }
+    },
+    "15": {
+      "source_file": "7d778801-88e7-5086-ad1d-70f31a371876.h5",
+      "seconds": 29970,
+      "segments": 1,
+      "normalized_sd": 1.0498,
+      "class_counts": {
+        "W": 1800,
+        "N1": 840,
+        "N2": 11940,
+        "N3": 5970,
+        "REM": 9420
+      }
+    },
+    "16": {
+      "source_file": "844f68ba-265e-53e6-bf47-6c85d1804a7b.h5",
+      "seconds": 28710,
+      "segments": 1,
+      "normalized_sd": 1.0406,
+      "class_counts": {
+        "W": 2760,
+        "N1": 1170,
+        "N2": 15360,
+        "N3": 3240,
+        "REM": 6180
+      }
+    },
+    "17": {
+      "source_file": "a25b2296-343b-53f6-8792-ada2669d466e.h5",
+      "seconds": 30240,
+      "segments": 1,
+      "normalized_sd": 1.0511,
+      "class_counts": {
+        "W": 3930,
+        "N1": 2790,
+        "N2": 14070,
+        "N3": 1110,
+        "REM": 8340
+      }
+    },
+    "18": {
+      "source_file": "a30245e3-4a71-565f-9636-92e7d2e825fc.h5",
+      "seconds": 33660,
+      "segments": 1,
+      "normalized_sd": 1.0245,
+      "class_counts": {
+        "W": 2160,
+        "N1": 1020,
+        "N2": 15090,
+        "N3": 7350,
+        "REM": 8040
+      }
+    },
+    "19": {
+      "source_file": "a4568951-bf87-5bbc-bc4f-28e93c360be6.h5",
+      "seconds": 29250,
+      "segments": 1,
+      "normalized_sd": 1.0381,
+      "class_counts": {
+        "W": 7500,
+        "N1": 2490,
+        "N2": 11550,
+        "N3": 3960,
+        "REM": 3750
+      }
+    },
+    "20": {
+      "source_file": "aa160c78-6da3-5e05-8fc9-d6c13e9f97e0.h5",
+      "seconds": 30300,
+      "segments": 1,
+      "normalized_sd": 1.0787,
+      "class_counts": {
+        "W": 5010,
+        "N1": 2280,
+        "N2": 20100,
+        "N3": 960,
+        "REM": 1950
+      }
+    },
+    "21": {
+      "source_file": "b5d5785d-87ee-5078-b9b9-aac6abd4d8de.h5",
+      "seconds": 27540,
+      "segments": 1,
+      "normalized_sd": 1.0489,
+      "class_counts": {
+        "W": 4890,
+        "N1": 1710,
+        "N2": 14310,
+        "N3": 3450,
+        "REM": 3180
+      }
+    },
+    "22": {
+      "source_file": "bb474ab0-c2ce-573b-8acd-ef86b0fa26a2.h5",
+      "seconds": 34260,
+      "segments": 1,
+      "normalized_sd": 1.0372,
+      "class_counts": {
+        "W": 2310,
+        "N1": 1710,
+        "N2": 17520,
+        "N3": 5010,
+        "REM": 7710
+      }
+    },
+    "23": {
+      "source_file": "d3cadb78-cb8c-5a6e-885c-392e457c68b1.h5",
+      "seconds": 29460,
+      "segments": 1,
+      "normalized_sd": 1.0382,
+      "class_counts": {
+        "W": 2250,
+        "N1": 1530,
+        "N2": 14010,
+        "N3": 4710,
+        "REM": 6960
+      }
+    },
+    "24": {
+      "source_file": "f2a69bdc-ed51-5e3f-b102-6b3f7d392be0.h5",
+      "seconds": 28800,
+      "segments": 1,
+      "normalized_sd": 1.0477,
+      "class_counts": {
+        "W": 1140,
+        "N1": 540,
+        "N2": 12960,
+        "N3": 7830,
+        "REM": 6330
+      }
+    }
+  }
+}
