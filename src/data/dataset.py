@@ -4,6 +4,60 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, WeightedRandomSampler
 
+def resolve_split_seed(config):
+    """Return the seed that decides which subjects land in which fold.
+
+    The training seed used to double as the split seed, so changing it moved the fold
+    boundaries as well as the weight initialisation and the two effects could not be
+    told apart afterwards. ``data.split_seed`` pins the partition independently: hold it
+    fixed across runs to vary only the initialisation, or vary it to sample partitions.
+
+    The canonical key is ``train.split_seed``, which sits beside ``train.seed`` so the two
+    knobs are visible together. ``data.split_seed`` is accepted as an alias. When neither is
+    present the training seed is used, so every configuration written before this option
+    existed still produces exactly the splits it always did.
+    """
+    data_cfg = (config or {}).get('data') or {}
+    train_cfg = (config or {}).get('train') or {}
+    if 'split_seed' in train_cfg:
+        seed = train_cfg['split_seed']
+        source = "train.split_seed"
+    elif 'split_seed' in data_cfg:
+        seed = data_cfg['split_seed']
+        source = "data.split_seed"
+    elif 'seed' in train_cfg:
+        seed = train_cfg['seed']
+        source = "train.seed"
+    else:
+        seed = data_cfg.get('seed', 42)
+        source = "data.seed"
+
+    # A seed that is None or a string would silently reshuffle the folds: random.seed(None)
+    # draws a fresh partition every run, and random.seed("42") is a different partition
+    # from random.seed(42). Both would be recorded in the split file as though they were 42.
+    try:
+        return int(seed)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{source} must be an integer, got {seed!r}. A blank or quoted value in the "
+            f"config would change the fold layout without changing what is recorded."
+        )
+
+
+def segment_starts(npz, num_seconds):
+    """Second indices at which a fresh, discontinuous stretch of signal begins.
+
+    Preprocessing drops unscored epochs and concatenates a subject's two nights, so the
+    stored array is not one continuous recording. Files written before this metadata
+    existed report a single segment, which is what the loader assumed implicitly.
+    """
+    if 'segment_starts' not in npz.files:
+        return None
+    starts = np.asarray(npz['segment_starts'], dtype=np.int64).ravel()
+    starts = starts[(starts >= 0) & (starts < num_seconds)]
+    return np.unique(np.concatenate(([0], starts)))
+
+
 def describe_normalization(npz):
     """Return a short identifier for how a processed .npz was normalized.
 
@@ -24,19 +78,35 @@ class SleepDataset(Dataset):
     PyTorch Dataset that loads processed subject .npz files and yields
     fixed-length sequence windows (context length L) for training sequence models.
     """
-    def __init__(self, processed_dir, subject_ids, seq_len=30, stride=15):
+    def __init__(self, processed_dir, subject_ids, seq_len=30, stride=15,
+                 respect_boundaries=False, cover_tail=False):
         """
         Args:
             processed_dir (str): Directory containing preprocessed subject .npz files.
             subject_ids (list of str): List of subject IDs to load (e.g. ['00', '01']).
             seq_len (int): Sequence window length in seconds. Default: 30.
             stride (int): Stride for sliding window sequence extraction. Default: 15.
+            respect_boundaries (bool): Drop windows that span a night join or a gap left
+                by an unscored epoch, so no window mixes two discontinuous stretches of
+                signal. Requires ``segment_starts`` metadata from preprocessing.
+            cover_tail (bool): Append a final window ending at the last second when the
+                stride does not divide the recording evenly. Without it the trailing
+                ``(len - seq_len) % stride`` seconds are never seen.
+
+        Both flags default to False, which reproduces the windowing used for every
+        archived run.
         """
         super(SleepDataset, self).__init__()
-        
+
         self.windows = []
         self.labels = []
+        self.window_subjects = []
+        self.window_starts = []
         self.normalization_method = None
+        self.respect_boundaries = respect_boundaries
+        self.cover_tail = cover_tail
+        self.windows_dropped_at_boundaries = 0
+        self.segment_starts_by_subject = {}
 
         # Load and segment data subject-by-subject
         for sub_id in subject_ids:
@@ -69,17 +139,51 @@ class SleepDataset(Dataset):
                 print(f"Warning: Subject {sub_id} recording has fewer seconds ({num_seconds}) than seq_len ({seq_len}). Skipping.")
                 continue
                 
-            for start in range(0, num_seconds - seq_len + 1, stride):
+            boundaries = None
+            if respect_boundaries:
+                boundaries = segment_starts(data, num_seconds)
+                if boundaries is None:
+                    raise ValueError(
+                        f"respect_boundaries=True needs segment metadata, but "
+                        f"{os.path.basename(file_path)} was written before preprocessing "
+                        f"recorded it. Re-run preprocessing into a clean directory, or "
+                        f"leave respect_boundaries off to keep the archived windowing."
+                    )
+
+            starts = list(range(0, num_seconds - seq_len + 1, stride))
+            if cover_tail and starts and starts[-1] + seq_len < num_seconds:
+                starts.append(num_seconds - seq_len)
+
+            for start in starts:
                 end = start + seq_len
+                if boundaries is not None:
+                    # A window is clean when no segment begins strictly inside it.
+                    crossings = boundaries[(boundaries > start) & (boundaries < end)]
+                    if len(crossings) > 0:
+                        self.windows_dropped_at_boundaries += 1
+                        continue
                 self.windows.append(x[start:end])
                 self.labels.append(y[start:end])
-                
+                self.window_subjects.append(sub_id)
+                self.window_starts.append(start)
+                if boundaries is not None:
+                    self.segment_starts_by_subject[sub_id] = boundaries
+                elif sub_id not in self.segment_starts_by_subject:
+                    stored = segment_starts(data, num_seconds)
+                    if stored is not None:
+                        self.segment_starts_by_subject[sub_id] = stored
+
         # Convert lists to arrays or tensors
+        self.window_subjects = np.array(self.window_subjects, dtype=object)
+        self.window_starts = np.array(self.window_starts, dtype=np.int64)
         if len(self.windows) > 0:
             self.windows = np.array(self.windows, dtype=np.float32) # (N_windows, L, 100)
             self.labels = np.array(self.labels, dtype=np.int64)     # (N_windows, L)
             print(f"Dataset initialized with {len(self.windows)} windows from {len(subject_ids)} "
                   f"subjects (normalization: {self.normalization_method}).")
+            if self.windows_dropped_at_boundaries:
+                print(f"  dropped {self.windows_dropped_at_boundaries} window(s) spanning a "
+                      f"night join or an unscored-epoch gap.")
         else:
             self.windows = np.empty((0, seq_len, 100), dtype=np.float32)
             self.labels = np.empty((0, seq_len), dtype=np.int64)

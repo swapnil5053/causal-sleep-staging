@@ -2,9 +2,9 @@
 
 Runs the real model, losses, optimizer, checkpoint round-trip and metric code on a
 few random batches so device/shape errors surface in seconds instead of after a
-full epoch. Temporary dev tool - safe to delete.
+full epoch. Documented in REPRODUCIBILITY.md as the fast pre-run check.
 
-    python smoke_test.py
+    python scripts/smoke_test.py
 """
 import os
 import sys
@@ -15,8 +15,10 @@ import torch
 import yaml
 from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
 
-from src.model.full_model import SleepStagingModel
-from src.train.losses import FocalLoss, WeightedCrossEntropyLoss
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.model.full_model import SleepStagingModel  # noqa: E402
+from src.train.losses import FocalLoss, WeightedCrossEntropyLoss  # noqa: E402
 
 FAILURES = []
 

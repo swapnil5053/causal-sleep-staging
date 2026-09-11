@@ -73,7 +73,7 @@ def main():
     ap.add_argument("--seconds", type=int, default=240, help="length of the probe signal")
     ap.add_argument("--split", type=int, default=120,
                     help="second at which the future perturbation begins")
-    ap.add_argument("--out", default="results/causality_verification.md")
+    ap.add_argument("--out", default="results/generated/causality_verification.md")
     args = ap.parse_args()
 
     config = yaml.safe_load(open(args.config))

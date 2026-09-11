@@ -1,0 +1,48 @@
+# Context-length ablation at 300 s on the end-to-end causal pipeline.
+# sleep78_ctx300.yaml is the epoch-normalised equivalent and cannot be reported
+# alongside a streaming headline; this one shares data/processed78_streaming.
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed78_streaming"
+  target_channel: "EEG Fpz-Cz"
+  resample_rate: 100
+  wake_trim_minutes: 30
+  normalization:
+    method: "causal_rolling"
+    window_seconds: 30
+    eps: 0.00000001
+  sequence_length: 300
+  sequence_stride: 150
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  seed: 42
+
+model:
+  mrcnn_channels_1: 16
+  mrcnn_channels_2: 16
+  tcn_channels: [32, 32, 32]
+  tcn_kernel_size: 3
+  tcn_dilations: [1, 2, 4]
+  tcn_dropout: 0.2
+  attn_num_heads: 4
+  attn_dropout: 0.1
+  num_classes: 5
+  causal: true
+
+train:
+  epochs: 40
+  early_stopping_patience: 8
+  checkpoint_metric: "kappa"
+  log_dir: "logs_78streaming_ctx300_s42"
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0001
+  loss_type: "focal"
+  focal_gamma: 2.0
+  use_weighted_sampler: false
+  num_folds: 5
+  checkpoint_dir: "checkpoints_78streaming_ctx300_s42"
+  seed: 42
+  # Fold layout pinned so a seed sweep varies initialisation only.
+  split_seed: 42

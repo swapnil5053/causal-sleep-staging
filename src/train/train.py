@@ -9,7 +9,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
 
-from src.data.dataset import SleepDataset, get_all_subject_ids, get_cv_splits, get_weighted_sampler
+from src.data.dataset import (SleepDataset, get_all_subject_ids, get_cv_splits,
+                              get_weighted_sampler, resolve_split_seed)
 from src.model.full_model import SleepStagingModel
 from src.train.losses import FocalLoss, WeightedCrossEntropyLoss
 
@@ -119,32 +120,42 @@ def run_fold(fold_idx, config, device, args):
     if not subject_ids:
         raise ValueError(f"No processed subject files found in {processed_dir}. Make sure you run preprocessing first!")
         
+    # The partition is decided by data.split_seed when present and by the training seed
+    # otherwise, so the fold layout can be pinned while the initialisation varies.
+    split_seed = resolve_split_seed(config)
     train_subs, val_subs, test_subs = get_cv_splits(
-        subject_ids, 
-        num_folds=config['train']['num_folds'], 
-        fold_idx=fold_idx, 
-        seed=config['train']['seed']
+        subject_ids,
+        num_folds=config['train']['num_folds'],
+        fold_idx=fold_idx,
+        seed=split_seed
     )
-    
+
+    print(f"Split seed: {split_seed} (training seed: {config['train']['seed']})")
     print(f"Train subjects: {train_subs}")
     print(f"Val subjects: {val_subs}")
     print(f"Test subjects (held-out for evaluate.py): {test_subs}")
-    
+
     # Save test subject split metadata for the evaluate script
     split_meta_path = os.path.join(checkpoint_dir, f"split_fold_{fold_idx}.yaml")
     with open(split_meta_path, "w") as sf:
         yaml.safe_dump({
             "train_subjects": train_subs,
             "val_subjects": val_subs,
-            "test_subjects": test_subs
+            "test_subjects": test_subs,
+            "split_seed": int(split_seed),
+            "train_seed": int(config['train']['seed'])
         }, sf)
-    
+
     # Create datasets
     seq_len = config['data']['sequence_length']
     stride = config['data']['sequence_stride']
-    
-    train_dataset = SleepDataset(processed_dir, train_subs, seq_len=seq_len, stride=stride)
-    val_dataset = SleepDataset(processed_dir, val_subs, seq_len=seq_len, stride=stride)
+    respect_boundaries = config['data'].get('respect_boundaries', False)
+    cover_tail = config['data'].get('cover_tail', False)
+
+    train_dataset = SleepDataset(processed_dir, train_subs, seq_len=seq_len, stride=stride,
+                                 respect_boundaries=respect_boundaries, cover_tail=cover_tail)
+    val_dataset = SleepDataset(processed_dir, val_subs, seq_len=seq_len, stride=stride,
+                               respect_boundaries=respect_boundaries, cover_tail=cover_tail)
     
     # Setup dataloaders
     batch_size = args.batch_size or config['train']['batch_size']
@@ -181,6 +192,9 @@ def run_fold(fold_idx, config, device, args):
     
     # Setup loss criterion
     loss_type = args.loss_type or config['train']['loss_type']
+    # Recorded in the checkpoint so a later prior correction knows the class balance the
+    # loss was actually trained against instead of assuming one.
+    train_class_counts = np.bincount(train_dataset.labels.flatten(), minlength=5)
     if loss_type == "focal":
         # Calculate standard class counts inside dataset to formulate optional alpha weights
         flat_labels = train_dataset.labels.flatten()
@@ -264,6 +278,8 @@ def run_fold(fold_idx, config, device, args):
                 'val_f1': val_f1,
                 'val_kappa': val_kappa,
                 'selection_metric': metric_name,
+                'train_class_counts': train_class_counts.tolist(),
+                'loss_type': loss_type,
                 'config': config
             }, checkpoint_path)
             print(f"----> Saved best model checkpoint to {checkpoint_path}")

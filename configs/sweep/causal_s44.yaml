@@ -1,0 +1,64 @@
+# Matched sweep, causal arm, initialisation seed 44.
+#
+# Differs from configs/sleep78_streaming_causal.yaml in exactly three ways:
+#   train.split_seed        pinned to 42 in all six sweep configs, so seeds 42/43/44 vary
+#                           the weight initialisation only and the five folds are the SAME
+#                           five folds. The archived runs let train.seed set both, so they
+#                           are fifteen distinct partitions rather than five measured thrice.
+#   data.respect_boundaries no training or evaluation window spans a night join or the gap
+#                           left by a dropped unscored epoch.
+#   log_dir/checkpoint_dir  written under *_sweep_* so nothing archived is overwritten.
+#
+# Requires data/processed78_streaming to have been produced by THIS branch: respect_boundaries
+# raises if the .npz files predate the segment_starts metadata, rather than silently doing
+# nothing. Re-run preprocessing before the sweep.
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed78_streaming
+  target_channel: EEG Fpz-Cz
+  resample_rate: 100
+  wake_trim_minutes: 30
+  normalization:
+    method: causal_rolling
+    window_seconds: 30
+    eps: 1.0e-08
+  sequence_length: 120
+  sequence_stride: 60
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  seed: 42
+  respect_boundaries: true
+  cover_tail: false
+model:
+  mrcnn_channels_1: 16
+  mrcnn_channels_2: 16
+  tcn_channels:
+  - 32
+  - 32
+  - 32
+  tcn_kernel_size: 3
+  tcn_dilations:
+  - 1
+  - 2
+  - 4
+  tcn_dropout: 0.2
+  attn_num_heads: 4
+  attn_dropout: 0.1
+  num_classes: 5
+  causal: true
+train:
+  epochs: 40
+  early_stopping_patience: 8
+  checkpoint_metric: kappa
+  log_dir: logs_sweep_causal_s44
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0001
+  loss_type: focal
+  focal_gamma: 2.0
+  use_weighted_sampler: false
+  num_folds: 5
+  checkpoint_dir: checkpoints_sweep_causal_s44
+  seed: 44
+  split_seed: 42
