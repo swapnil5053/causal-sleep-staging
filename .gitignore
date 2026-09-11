@@ -74,7 +74,6 @@ overnight_run.log
 # Internal working notes, panel-prep material and locally generated reports.
 # None of this belongs in the public repository the paper cites.
 notes_internal/
-Claude outputs/
 figures/deck/
 results/generated/
 logs_sweep_runs/

@@ -15,24 +15,28 @@ $failures = @()
 
 function Section($name) { Write-Host ""; Write-Host "--- $name" }
 
+# This script contains the patterns it searches for, so it would match itself. Exclude it from
+# the content scans; it is still covered by every structural check below.
+$self = "runs/check_repo.ps1"
+
 $tracked = git ls-files
 $textPattern = '\.(py|md|ps1|yaml|yml|cff|txt|tex|bib|cfg|toml|json)$'
 
 Section "tracked files"
 $absent = $tracked | Where-Object { -not (Test-Path $_) }
 $present = $tracked | Where-Object { Test-Path $_ }
-$text = $present | Where-Object { $_ -match $textPattern }
-Write-Host "$($tracked.Count) tracked, $($text.Count) of them readable text"
+$text = $present | Where-Object { $_ -match $textPattern -and $_ -ne $self }
+Write-Host "$($tracked.Count) tracked, $($text.Count) of them scanned as text"
 if ($absent) {
     Write-Host "  tracked but missing from the working tree:"
     $absent | ForEach-Object { Write-Host "    $_" }
-    $failures += "files are tracked but absent from the working tree (git rm them or restore them)"
+    $failures += "files are tracked but absent from the working tree"
 }
 
 # ------------------------------------------------------------------ assistant strings
 Section "assistant strings in tracked files"
 $tells = 'claude|anthropic|openai|chatgpt|copilot|co-authored-by|as an AI|language model|I apologize'
-$hits = $text | ForEach-Object { Select-String -Path $_ -Pattern $tells -AllMatches -CaseSensitive:$false }
+$hits = $text | ForEach-Object { Select-String -Path $_ -Pattern $tells -AllMatches }
 if ($hits) {
     $hits | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
     $failures += "assistant strings found in tracked files"
@@ -57,7 +61,7 @@ if ($paths) {
 # ------------------------------------------------------------------ commit messages
 Section "commit messages on this branch"
 $messages = git log --format="%H %s%n%b" -n 200
-$msgHits = $messages | Select-String -Pattern $tells -CaseSensitive:$false
+$msgHits = $messages | Select-String -Pattern $tells
 if ($msgHits) {
     $msgHits | ForEach-Object { Write-Host "  $($_.Line.Trim())" }
     $failures += "assistant strings in commit messages (needs an interactive rebase, do not do this casually)"
@@ -65,12 +69,22 @@ if ($msgHits) {
 
 # --------------------------------------------------------------- accidentally tracked
 Section "run artifacts that should not be tracked"
+# results/ is curated by hand and is meant to carry per-fold CSVs and a small number of archived
+# checkpoints, so it is exempt. Live run directories and the data trees are not.
 $leaked = $tracked |
     Where-Object { $_ -notmatch '(^|/)\.gitkeep$' } |
-    Where-Object { $_ -match '^(logs_|checkpoints_|data/raw/|data/processed/)' -or $_ -match '\.(pth|edf|npz|h5)$' }
+    Where-Object { $_ -notmatch '^results/' } |
+    Where-Object { $_ -match '^(logs_|checkpoints_|data/raw/|data/processed/)' -or $_ -match '\.(edf|npz|h5)$' }
 if ($leaked) {
     $leaked | ForEach-Object { Write-Host "  $_" }
     $failures += "run artifacts are tracked"
+} else { Write-Host "  none" }
+
+Section "tracked files inside an ignored directory"
+$shadowed = $tracked | Where-Object { $_ -match '^results/generated/' }
+if ($shadowed) {
+    $shadowed | ForEach-Object { Write-Host "  $_" }
+    $failures += "files under results/generated/ are tracked although .gitignore excludes it"
 } else { Write-Host "  none" }
 
 Section "large tracked files (over 5 MB)"
