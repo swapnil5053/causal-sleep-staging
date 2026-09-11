@@ -304,28 +304,24 @@ here.
 Capstone project at PES University, PW25_BJD_21, supervised by
 [Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
 
-Contributions follow the pattern of a CRediT statement: what each person originated, not how many
-commits carry their name. Work that was later revised or reimplemented is still credited to
-whoever originated it.
+Contributions follow the pattern of a CRediT statement, ordered by the scale of the
+contribution.
 
+- **[Swapnil S](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols
+  and the within-arm protocol estimand the central result rests on, the DOD-H replication,
+  buffer-position and boundary-latency measurement, the second-architecture integration with its
+  parameter-matched control, the capacity check, the revision and repair of contributed work
+  across branches, the release engineering of this repository, and the manuscripts.
 - **[Jahnvi R](https://github.com/jahnvi1504):** conceptualisation and the initial codebase. The
   convolutional model architecture, loss function design, the first streaming-safe causal
-  preprocessing implementation, the architecture and reproduction documentation, the causality and
-  subject-split test suite, the archived-results validator, and the recurrent second-architecture
-  variant.
-- **[Swapnil S](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols and
-  the within-arm protocol estimand built on them, the DOD-H replication, buffer-position and
-  boundary-latency measurement, the second-architecture integration with its parameter-matched
-  control, the capacity check, cross-branch integration and repair, and the manuscripts.
-- **[Shreeya Methuku](https://github.com/shreeya-methuku):** the warm-started evaluation that first
-  measured the window-boundary artifact, which is the observation this work is built on. The
-  sample-at-a-time streaming demonstration, separation of the cross-validation split seed from the
-  initialisation seed, per-subject scoring and subject-level pairing of the causality test,
-  recording-discontinuity handling in the loader, calibration and transition-response analyses,
-  recovery of the archived split files, literature review and manuscript preparation.
+  preprocessing implementation, the causality and subject-split test suite, the architecture and
+  reproduction documentation, and the recurrent second-architecture variant.
+- **[Shreeya Methuku](https://github.com/shreeya-methuku):** the warm-started evaluation that
+  first measured the window-boundary artifact, which is the observation this work is built on.
+  The sample-at-a-time streaming demonstration, separation of the cross-validation split seed
+  from the initialisation seed, per-subject scoring and pairing, and literature review.
 - **[Shreshtha Dixit](https://github.com/shreshtha-dixit):** the Nadeau-Bengio corrected pooled
-  statistics used throughout, the per-class decomposition of the causality cost, the seed and split
-  overlap simulation, the corrected CPU latency benchmark, the causality analysis scripts,
-  literature review and manuscript preparation.
+  statistics used throughout, the per-class decomposition of the causality cost, the seed and
+  split overlap simulation, the corrected CPU latency benchmark, and literature review.
 - **[Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en):**
   supervision and project guidance.

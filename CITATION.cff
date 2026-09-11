@@ -20,6 +20,8 @@ authors:
     given-names: Shreshtha
     affiliation: "PES University, Bengaluru, India"
 repository-code: "https://github.com/swapnil5053/causal-sleep-staging"
+version: "1.0.0"
+date-released: "2026-09-11"
 license: MIT
 keywords:
   - sleep staging
