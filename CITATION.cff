@@ -7,7 +7,7 @@ abstract: >-
   evaluation protocols.
 type: software
 authors:
-  - family-names: S
+  - family-names: "Shantha Kumar"
     given-names: Swapnil
     affiliation: "PES University, Bengaluru, India"
   - family-names: R

@@ -306,7 +306,7 @@ Capstone project at PES University, PW25_BJD_21, supervised by
 
 Contributions follow the pattern of a CRediT statement, ordered by scale.
 
-- **[Swapnil S](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols
+- **[Swapnil Shantha Kumar](https://github.com/swapnil5053):** the tiled and streaming evaluation protocols
   and the within-arm estimand the central result rests on. The DOD-H replication,
   buffer-position and boundary-latency measurement, the second-architecture integration and its
   parameter-matched control, and the capacity check. Revision and repair of contributed work
