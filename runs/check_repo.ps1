@@ -87,6 +87,26 @@ if ($shadowed) {
     $failures += "files under results/generated/ are tracked although .gitignore excludes it"
 } else { Write-Host "  none" }
 
+Section "markdown links"
+# Every relative link in a tracked markdown file must resolve to something that exists.
+# External links and in-page anchors are out of scope.
+$broken = @()
+foreach ($doc in ($text | Where-Object { $_ -match '\.md$' })) {
+    $dir = Split-Path -Parent $doc
+    foreach ($m in [regex]::Matches((Get-Content $doc -Raw), '\]\(([^)\s]+)\)')) {
+        $target = $m.Groups[1].Value
+        if ($target -match '^(https?:|mailto:|#)') { continue }
+        $target = ($target -split '#')[0]
+        if (-not $target) { continue }
+        $resolved = if ($dir) { Join-Path $dir $target } else { $target }
+        if (-not (Test-Path $resolved)) { $broken += "$doc -> $target" }
+    }
+}
+if ($broken) {
+    $broken | ForEach-Object { Write-Host "  $_" }
+    $failures += "markdown links point at files that do not exist"
+} else { Write-Host "  all relative links resolve" }
+
 Section "large tracked files (over 5 MB)"
 $big = $present | Get-Item | Where-Object { $_.Length -gt 5MB }
 if ($big) {

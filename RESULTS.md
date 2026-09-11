@@ -227,7 +227,7 @@ hypnogram: 181 stage changes an hour against 13 for the technician. A trailing-w
 which uses only past predictions and so stays causal, cuts that to 26 an hour and adds 0.009 kappa
 at no training cost.
 
-Artifact: `results/smoothing.md`.
+Artifact: the smoothing sweep section of `results/statistics.md`.
 
 ## 11. Comparison with published baselines
 

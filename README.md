@@ -256,14 +256,13 @@ here.
 Capstone project at PES University, PW25_BJD_21, supervised by
 [Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
 
-- [Swapnil S](https://github.com/swapnil5053): data pipeline and preprocessing, including the
-  end-to-end causal normaliser and its streaming equivalence proof; the tiled and streaming
-  evaluation protocols; the DOD-H replication; the statistical treatment, including the
-  Nadeau-Bengio correction and the within-arm protocol estimand; the buffer-position, latency and
-  boundary-latency analyses; integration and experiments for the second architecture and its
-  matched control; results analysis and the manuscripts.
-- [Jahnvi R](https://github.com/jahnvi1504): initial codebase, the convolutional model
-  architecture and loss function design, the recurrent second-architecture variant, and
-  publication positioning.
+- [Swapnil S](https://github.com/swapnil5053): the evaluation protocols and the finding built
+  on them. End-to-end causal preprocessing and its streaming-equivalence proof. The DOD-H
+  replication. The statistical treatment: the within-arm estimand, the Nadeau-Bengio correction,
+  and the analysis scripts behind every reported number. Buffer-position, latency and
+  boundary-latency measurement. Integration, matched control and experiments for the second
+  architecture. The manuscripts.
+- [Jahnvi R](https://github.com/jahnvi1504): the initial codebase, the convolutional architecture
+  and loss design, the recurrent second-architecture variant, and publication positioning.
 - [Shreeya Methuku](https://github.com/shreeya-methuku): literature review and technical writing.
 - [Shreshtha Dixit](https://github.com/shreshtha-dixit): literature review and technical writing.
