@@ -1,0 +1,31 @@
+Fold 1 held-out test results
+Test subjects: ['06', '05', '10', '15', '21']
+Overall Accuracy: 0.7902
+Cohen's Kappa:    0.7132
+Macro F1-Score:   0.7204
+
+Aggregated to 30s epochs (4,792 epochs):
+Accuracy: 0.8136  Kappa: 0.7443  Macro F1: 0.7455
+
+Per-class F1: Wake (W)=0.781, N1=0.356, N2=0.851, N3=0.837, REM=0.777
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    Wake (W)       0.93      0.67      0.78     22320
+          N1       0.31      0.41      0.36      7830
+          N2       0.92      0.79      0.85     63480
+          N3       0.75      0.96      0.84     19080
+         REM       0.70      0.87      0.78     31050
+
+    accuracy                           0.79    143760
+   macro avg       0.72      0.74      0.72    143760
+weighted avg       0.82      0.79      0.80    143760
+
+Confusion Matrix (Rows=True, Cols=Predicted):
+      W    N1    N2    N3   REM
+Wake (W) 15008  3388   675   215  3034
+N1      632  3244  1160    80  2714
+N2      115  1916 50082  5657  5710
+N3       19    11   809 18226    15
+REM     337  1858  1549   269 27037
