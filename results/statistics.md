@@ -109,8 +109,8 @@ Macro-F1: causal 0.6894, non-causal 0.7120, difference −0.0226.
 
 The cost concentrates in REM and N1. REM is normally disambiguated using eye-movement and
 muscle-tone context around the epoch, and N1 is inherently transitional, so both lose more
-when the model cannot look ahead. N2, N3 and Wake have locally distinctive signal —
-spindles and K-complexes, slow waves, clear alpha and beta — and are barely affected. REM
+when the model cannot look ahead. N2, N3 and Wake have locally distinctive signal:
+spindles and K-complexes, slow waves, clear alpha and beta, and are barely affected. REM
 is the only class whose loss survives correction, at 2.4× the macro average and 25× what
 N2 pays.
 
@@ -134,7 +134,7 @@ seeds. If seeds only changed initialisation, overlap would be 100%.
 | 4 | 1/15 | 4/15 | 2/15 | 15 |
 
 Average overlap across all folds and seed pairs: **2.7 subjects** out of an average fold
-size of 15.6 — about **18%**.
+size of 15.6, about **18%**.
 
 So "fold 0" under two different seeds is not the same held-out subjects, and per-seed fold
 numbers are not directly comparable across seeds. The fifteen runs are neither fully
@@ -168,7 +168,7 @@ within each recording.
 | 120 | 0.7258 | 0.6360 | 0.6627 | 0.369 | 10 |
 
 Human scoring on the same recordings changes stage **13 times an hour**. Unsmoothed output
-changes **181 times an hour** — 14× more often.
+changes **181 times an hour**, 14 times more often.
 
 A 30 s window is best for κ (+0.0089 against unsmoothed) and cuts fragmentation sevenfold,
 from 181 to 26 changes an hour. A 45 s window brings stability to 19 an hour, close to the
@@ -179,7 +179,7 @@ and heavy smoothing absorbs them into neighbouring stages. The best window there
 depends on whether overall agreement or transitional-stage sensitivity matters more.
 
 Smoothing is applied at inference only. No retraining, no added parameters, causality
-preserved — a free post-processing gain available to any per-second model.
+preserved, a free post-processing gain available to any per-second model.
 
 This sweep has not yet been re-run on the leak-free pipeline; it needs the saved
 prediction files and is outstanding.
@@ -195,7 +195,7 @@ zero, and the effect size agrees between two independently preprocessed pipeline
 reflects the causal constraint rather than an artifact of preprocessing.
 
 On Sleep-EDF-20 the same comparison gives **+0.0143** with p = 0.2762 and an interval
-spanning zero — the sign flips. Fold-to-fold variance there is 3.1× larger (κ s.d. 0.0922
+spanning zero, so the sign flips. Fold-to-fold variance there is 3.1 times larger (κ s.d. 0.0922
 against 0.0297), which is enough to hide an effect of this size and reverse its direction.
 Roughly 25 folds would be needed for 80% power at that scale, against 3 on the 78-subject
 set.

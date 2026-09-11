@@ -114,7 +114,7 @@ to use it.
 ### The normalizer resets at every recording
 
 `StreamingZScore` is reset at the start of each recording, including between a subject's two
-nights. This is deliberate — a device powering on has no history either — but it means the
+nights. This is deliberate, since a device powering on has no history either, but it means the
 first seconds of every night are normalized against a partial window rather than a full 30 s
 one, and this is worth one sentence in the methods rather than leaving a reviewer to find it.
 
@@ -213,7 +213,7 @@ python -m unittest discover -s tests -v
 ```
 
 The tests check tensor dimensions, parameter count, model-layer causality, subject split
-integrity, and — in `tests/test_end_to_end_causality.py` — causality of the composed
+integrity, and, in `tests/test_end_to_end_causality.py`, causality of the composed
 normalization-plus-model path, including that the offline arrays equal the online
 sample-at-a-time filter and that the non-causal arm genuinely does leak.
 

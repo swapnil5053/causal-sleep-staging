@@ -13,7 +13,7 @@ non-zero on failure so it can gate a commit.
 
 - Config: `configs/sleep78_streaming_causal.yaml`
 - Normalization: `causal_rolling`, trailing window 30 s
-- Model weights: randomly initialised — causality does not depend on trained values
+- Model weights: randomly initialised, since causality does not depend on trained values
 - Probe: 240 s of synthetic EEG at 100 Hz, perturbed from second 120
 
 | Check | Result | Detail |
@@ -57,11 +57,11 @@ Measured on an Intel Core i9-14900HX.
 
 ### StreamingZScore, 30 s trailing window
 
-Median 0.792 µs per sample, IQR [0.791, 0.833] — negligible against the forward pass.
+Median 0.792 µs per sample, IQR [0.791, 0.833], negligible against the forward pass.
 
 ### Note on the earlier benchmark
 
-C0 does strictly less work per call than C1 — 60 s of context against 120 s — so its median
+C0 does strictly less work per call than C1, 60 s of context against 120 s, so its median
 latency must be lower. The previous benchmark reported the opposite. It used the mean
 without thread pinning and generated its random input samples inside the timed region.
 Both faults are corrected here; these are the numbers to report.

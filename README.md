@@ -1,94 +1,118 @@
 # Causal Sleep Staging
 
-Sleep stage classification from a single EEG channel that predicts a stage every second using
-only past signal.
+Second-by-second sleep stage classification from a single EEG channel, using only past signal,
+and a controlled measurement of what that constraint costs.
 
-Most sleep staging models score 30-second epochs and read the whole night at once, so they
-cannot run live. This one is strictly causal: the prediction at time *t* depends only on input
-up to *t*. It has 30,757 parameters and runs at 0.026 ms per second of EEG on an Intel Core
-i9-14900HX CPU, so it can keep up with a live stream on a wearable.
+The prediction at second *t* depends on the raw signal up to second *t* and on nothing after it.
+That holds through the network and through preprocessing, and it is verified by perturbation
+rather than asserted. Two architectures are implemented, each with a matched non-causal control,
+and both are evaluated on two datasets under two evaluation protocols.
 
-The repository also contains a controlled measurement of what that constraint costs: the same
-architecture, parameter for parameter, trained with and without access to future signal.
+## The result
 
-## Results
+The cost of the causal constraint is mostly produced by how the models are scored, not by the
+constraint.
 
-Subject-wise 5-fold cross-validation on Sleep-EDF, single channel Fpz-Cz at 100 Hz, five classes
-(W, N1, N2, N3, REM).
+Two protocols are used. **Tiled** covers a recording with non-overlapping context windows and
+scores every position of every window, which is the default in the implementations we have
+examined, including our own earlier work. Each window starts from an empty history.
+**Streaming** recomputes every 30 seconds against a full buffer and keeps only the freshest 30
+predictions, so after the opening window every scored second carries at least 90 seconds of
+genuine history. This is what a deployed system does. Every held-out second is scored exactly
+once under each protocol, from the same trained weights.
 
-| Metric | Sleep-EDF-20 | Sleep-EDF-78 | Sleep-EDF-78, streaming |
+Moving from tiled to streaming lifts both arms, but it lifts the causal arm far more. That
+excess is the paper's central quantity, and it is a within-arm measurement: the same weights,
+the same held-out seconds, two protocols. It does not require the two arms to be comparable.
+
+| | Sleep-EDF-78, TCN | DOD-H, TCN | Sleep-EDF-78, GRU |
 |---|---|---|---|
-| Accuracy | 74.4% | 72.3% | **74.9%** |
-| Cohen's kappa | 0.662 | 0.634 | **0.663** |
-| Macro F1 | 0.688 | 0.662 | **0.690** |
-| N1 F1 | 0.336 | 0.398 | **0.414** |
-| Kappa at 30 s granularity | 0.684 | 0.652 | **0.683** |
-| Fold-to-fold kappa sd | 0.092 | 0.030 | 0.033 |
-| Kappa with 30 s causal smoothing | | 0.642 | |
-| End-to-end causal preprocessing | no | no | **yes** |
-| Parameters | 30,757 | 30,757 | 30,757 |
-| CPU inference | 0.026 ms/s | 0.026 ms/s | 0.026 ms/s |
+| Causal arm gains | +0.0350 | +0.0345 | +0.0353 |
+| Non-causal arm gains | +0.0036 | +0.0052 | +0.0055 |
+| **Excess to the causal arm** | **+0.0314** | **+0.0292** | **+0.0298** |
+| Folds with positive excess | 15/15 | 15/15 | 15/15 |
+| Bootstrap 95% CI | [.0291, .0334] | [.0253, .0332] | [.0265, .0330] |
+| Corrected t(14) | 12.69 | 6.48 | 7.99 |
+| p | 4.6e-09 | 1.4e-05 | 1.4e-06 |
 
-The first two columns z-score each 30-second epoch, which reads samples from later in that
-epoch: the network is causal, the pipeline is not. The streaming column replaces that with a
-trailing 30-second window, so no stage of the pipeline touches the future. Kappa rises by
-0.030 rather than falling, so end-to-end causality costs nothing here.
+Two datasets that differ in montage, sampling rate, scoring team, class balance and subject
+count, and two architecture families that share only the convolutional front end, agree on the
+size of the penalty to the causal arm to within 0.001 kappa.
 
-Predicting every second independently makes the raw output far more fragmented than a scored
-hypnogram: 181 stage changes an hour against 13 for the technician. A trailing-window mode
-filter, which uses only past predictions and so stays causal, cuts that to 26 an hour and adds
-0.009 kappa at no training cost. See [RESULTS.md](RESULTS.md).
+The aggregate cost of causality follows from that arithmetic rather than as an independent
+observation.
 
-### What causality costs
+| Dataset, architecture | Tiled | Streaming |
+|---|---|---|
+| Sleep-EDF-78, TCN | -0.0249 (14/15, p = 3.8e-06) | +0.0065 (7/15, p = 0.47) |
+| DOD-H, TCN | -0.0329 (10/15, p = 0.22) | -0.0037 (6/15, p = 0.89) |
+| Sleep-EDF-78, GRU | -0.0384 (15/15, p = 2.5e-06) | -0.0085 (11/15, p = 0.14) |
 
-The same model with the causal constraint removed, holding parameters, data and folds fixed:
+Negative means the causal arm scores lower. All figures are Cohen's kappa on held-out seconds,
+pooled over three seeds and five subject-wise folds, tested with the Nadeau-Bengio correction
+for repeated cross-validation.
 
-| Subjects | Normalization | Causal | Non-causal | Difference | p | Folds causal loses |
-|---|---|---|---|---|---|---|
-| 20 | epoch z-score | 0.6625 | 0.6482 | +0.014 | 0.276 | 2 of 5 |
-| 78 | epoch z-score | 0.6406 | 0.6693 | -0.029 | 5.9e-08 | 15 of 15 |
-| 78 | causal rolling | 0.6649 | 0.6898 | **-0.025** | **3.8e-06** | **14 of 15** |
+Full per-fold numbers, per-class breakdowns, the buffer-position analysis and the latency
+measurements are in [RESULTS.md](RESULTS.md).
 
-Both 78-subject rows pool three seeds over five folds (15 paired measurements each); the
-20-subject row is a single seed.
+## Models
 
-On 78 subjects, giving the model access to future signal improves kappa by roughly 0.03,
-consistently across every fold. That is the measurable price of running in real time, and it
-holds under both normalization regimes, each measured over three seeds and five folds: -0.029
-with epoch z-scoring and -0.025 with the fully causal pipeline (paired t(14) = -7.33,
-p = 3.8e-06, 95% CI [-0.031, -0.018]). The causal model loses in 14 of those 15 measurements.
-
-The same comparison on 20 subjects is not significant and its sign is unstable, because
-fold-to-fold variance there is three times larger (kappa sd 0.092 against 0.030). Causality
-penalties measured on 20 subjects should be treated with caution.
-
-Per-fold numbers, the configuration and preprocessing ablations, and the full baseline
-comparison are in [RESULTS.md](RESULTS.md).
-
-## Model
+Both share the front end: two parallel causal convolutions at 100 Hz, kernel 50 for spindles and
+K-complexes and kernel 400 for slow waves, left-aligned max pooling to one feature vector per
+second. They differ only in the sequence encoder.
 
 ```
 raw EEG, 100 Hz
-  -> MRCNN        two parallel causal convolutions: kernel 50 (0.5 s, spindles and
-                  K-complexes) and kernel 400 (4 s, slow waves), max-pooled to 1 Hz
-  -> TCN          residual blocks of causal dilated convolutions (default 3, dilations 1, 2, 4)
-  -> attention    causal masked multi-head self-attention, 4 heads
-  -> classifier   linear, 5 classes, one prediction per second
+  -> MRCNN             two-branch causal convolution, pooled to 1 Hz
+  -> sequence encoder  either
+                         TCN + attention  three residual blocks of causal dilated
+                                          convolutions (dilations 1, 2, 4) then four-head
+                                          self-attention with a causal mask
+                         GRU              two-layer unidirectional recurrent encoder
+                                          with layer normalisation
+  -> classifier        linear, five classes, one prediction per second
 ```
 
-Causality is enforced by left-padding every convolution by `(kernel - 1) * dilation` and masking
-the attention above the diagonal. Perturbing the signal at second *t* leaves every output before
-*t* bit-identical.
+| Arm | Parameters |
+|---|---:|
+| TCN + attention, causal and control | 30,757 |
+| GRU, causal | 20,197 |
+| GRU, control | 20,335 |
 
-Setting `causal: false` keeps every layer, channel and parameter identical but pads convolutions
-symmetrically and removes the attention mask, so the model can see the future. That is the only
-difference, which makes the causal/non-causal comparison a controlled one.
+Causality is enforced in two places for the convolutional model: convolutions pad only on the
+left by `(kernel - 1) * dilation`, and the attention mask sets positions above the diagonal to
+minus infinity. The control removes both and changes nothing else, so the two arms are identical
+in capacity.
+
+The recurrent case is different and the difference matters. A unidirectional GRU is causal by
+construction and needs no mask, but its non-causal twin must add a second direction, which at
+equal hidden size would carry 1.94 times the parameters. The control therefore runs at a reduced
+per-direction hidden size, matching the causal arm on parameter count to 0.68% rather than being
+literally identical. `scripts/make_gru_configs.py` enforces that match and refuses to write the
+configs if it drifts past one percent.
+
+## Causality is verified, not claimed
+
+```bash
+python scripts/verify_causality.py --config configs/sleep78_streaming_causal.yaml
+```
+
+Seven checks, each requiring bit-identical output rather than closeness. It perturbs a synthetic
+recording from second 120 onward and requires every earlier logit to be unchanged; it checks the
+offline normaliser against a sample-at-a-time online filter; it confirms the normalised signal
+stays finite through the cold start; and it confirms the non-causal control does leak, so the
+ablation is a real contrast rather than two identical models. It exits non-zero on failure and
+can gate a run. Configs using per-epoch z-scoring fail it by design.
+
+Per-epoch z-scoring is near-universal in this literature and it is a look-ahead leak: normalising
+an early sample with statistics computed over the whole epoch reads that sample's future. It is
+replaced here by a trailing 30-second statistic computable one sample at a time. Closing that leak
+raised kappa rather than lowering it, so it is a modelling gain and not a trade.
 
 ## Setup
 
-Python 3.10+. A CUDA GPU is not required but training takes hours on CPU.
-For exact experiment-to-config mappings and a complete run checklist, see
-[REPRODUCIBILITY.md](REPRODUCIBILITY.md).
+Python 3.10 or newer. Training needs a CUDA GPU in practice; a full fold takes about 16 minutes
+on an RTX 4060 laptop GPU and hours on CPU.
 
 ```bash
 python -m venv venv
@@ -96,7 +120,7 @@ source venv/bin/activate            # Windows: .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-For GPU training, install the CUDA build of PyTorch first:
+For GPU training install the CUDA build of PyTorch first:
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu126
@@ -104,141 +128,110 @@ pip install torch --index-url https://download.pytorch.org/whl/cu126
 
 ## Data
 
-Sleep-EDF Expanded from PhysioNet, sleep-cassette subset, subjects 00-19 (about 2 GB).
+Neither dataset is redistributed here.
+
+**Sleep-EDF Expanded**, sleep-cassette subset, 78 subjects and 153 recordings, channel Fpz-Cz at
+100 Hz, 1,629 hours after trimming each night to 30 minutes of Wake either side of the sleep
+period.
 
 ```bash
 pip install awscli
-aws s3 sync --no-sign-request --exclude "*" --include "SC40*" --include "SC41*" \
+aws s3 sync --no-sign-request \
   s3://physionet-open/sleep-edfx/1.0.0/sleep-cassette/ data/raw/
 ```
 
-That gives 39 `*-PSG.edf` files with their matching `*-Hypnogram.edf` files. The hypnogram
-filenames carry a scorer letter that varies (`SC4001EC`, `SC4011EH`, ...); the loader matches
-them by subject prefix, so nothing needs renaming.
+**DOD-H** from Dreem Open Datasets, 25 subjects, 205.5 hours, channel F3-M2 resampled from 250 Hz
+with a polyphase anti-aliasing filter, no Wake trimming since Wake is already 12.3% of that
+corpus. See `scripts/dod_preprocessing.py` for acquisition and preparation.
 
-Drop the two `--include` filters to fetch the full 78-subject cassette set instead.
+Both are scored to the five AASM classes in 30-second epochs. Each epoch label is replicated
+across its 30 one-second targets, so supervision is at 1 Hz but its resolution is not: no public
+dataset carries genuine per-second expert scoring.
 
 ## Running
 
 ```bash
-python -m src.data.preprocessing --all     # EDF -> data/processed/subject_XX.npz
-python -m src.train.train --fold -1        # all 5 folds
-python -m src.eval.evaluate --fold 0       # repeat for folds 0-4
-python -m src.eval.evaluate --benchmark    # CPU latency
+python -m src.data.preprocessing --all                                    # EDF to .npz
+python -m src.train.train  --config configs/sleep78_streaming_causal.yaml --fold -1
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0
+python -m src.eval.evaluate --config configs/sleep78_streaming_causal.yaml --fold 0 --stream_stride 30
 ```
 
-Evaluation reports metrics twice: per-second, and aggregated to 30-second epochs by majority
-vote. The second set is what compares like for like against published 30-second results.
-
-Output lands in `logs/`: per-epoch curves in `fold_N_metrics.csv`, held-out test reports in
-`fold_N_test_report.txt`, and one row per fold in `test_metrics_summary.csv`. Checkpoints and the
-subject splits used for each fold go to `checkpoints/`.
-
-## Experiments
-
-Each config writes to its own `log_dir` and `checkpoint_dir`, so runs never overwrite each other.
-
-| Config | Variable under test |
-|---|---|
-| `configs/default.yaml` | baseline, 60 s context, 3 TCN blocks |
-| `configs/run_b_context.yaml` | 120 s context |
-| `configs/run_c_depth.yaml` | 120 s context plus a 4th TCN block (37,093 params) |
-| `configs/run_d_noncausal.yaml` | identical to run C but `causal: false` |
-
-```bash
-python -m src.train.train --config configs/run_c_depth.yaml --fold -1
-python -m src.eval.evaluate --config configs/run_c_depth.yaml --fold 0
-```
-
-Run C minus run D is the cost of causality on this architecture, holding everything else fixed.
+The first evaluation call scores under the tiled protocol, the second under streaming. Each
+writes `fold_N_test_report.txt` and appends one row to `test_metrics_summary.csv`, with the
+streaming results carrying a `_streaming30` suffix. Both are needed before any statistic below
+can be computed.
 
 `smoke_test.py` runs the model, losses, optimiser, checkpoint round-trip and metrics on random
-batches in a few seconds, which catches shape and device errors before a long run:
+batches in a few seconds, which catches shape and device errors before committing to a long run.
+
+The PowerShell drivers under `runs/` chain training, both evaluation protocols, output checks and
+the statistics for a whole experiment, and are restartable: anything already finished is skipped.
+
+## Reproducing the reported numbers
+
+Every figure in the tables above comes from a script in this repository operating on committed
+per-fold CSVs, and can be regenerated without retraining.
 
 ```bash
-python smoke_test.py configs/run_c_depth.yaml
+python scripts/protocol_excess.py \
+  --seed 42=logs_78streaming_causal_s42,logs_78streaming_noncausal_s42 \
+  --seed 43=logs_78streaming_causal_s43,logs_78streaming_noncausal_s43 \
+  --seed 44=logs_78streaming_causal_s44,logs_78streaming_noncausal_s44
 ```
 
-## Preprocessing notes
-
-Three decisions affect the numbers a lot.
-
-**Normalization.** The archived runs z-scored each 30-second epoch using that epoch's own
-mean and standard deviation. The network is causal with respect to its input, but that
-statistic reads samples from later in the epoch, so the *pipeline* was not end-to-end causal
-even though the model was. `data.normalization.method: causal_rolling` replaces it with a
-trailing z-score: at sample *t* the mean and standard deviation come from
-`[t - window + 1, t]` only, and the statistic resets at the start of every recording. It is
-mathematically identical to what a device computes sample by sample, and
-`src/data/normalization.py` ships that online filter (`StreamingZScore`) so the equivalence
-is checked rather than asserted.
-
-`python scripts/verify_causality.py` runs the whole path — raw sample, normalization, model —
-perturbs the input at a future second, and requires every earlier output to be bit-identical.
-It writes `results/generated/causality_verification.md` and exits non-zero on failure, so it can gate a
-run. Configs that still use `epoch_zscore` fail it by design.
-
-Only `configs/sleep78_streaming_*.yaml` use the causal normalization; every other config keeps
-`epoch_zscore` so the archived numbers stay reproducible. The two regimes write to different
-`processed_dir`s and the loader refuses to mix them in one directory.
-
-Sleep-EDF cassette recordings run about 20 hours per night, most of it awake and out of bed.
-Keeping all of it makes Wake 68% of the data and inflates accuracy, and it is not what the
-published baselines do. `wake_trim_minutes: 30` keeps 30 minutes of wake either side of each
-night's sleep period and drops the rest, which brings Wake down to roughly 15%. Trimming runs per
-night, before a subject's two nights are concatenated, so the daytime gap between the two
-recordings is removed as well.
-
-Labels are 30-second epoch labels replicated across their 30 seconds. No public dataset has
-per-second expert scoring, so the inference is continuous but the supervision is not. Accuracy
-should be read with that in mind, and kappa is the more meaningful number.
+`scripts/pool_seeds.py` gives the between-arm causality cost with the same correction,
+`scripts/latency_sweep.py` gives accuracy as a function of permitted latency across every buffer
+position from a single sweep, `scripts/boundary_latency.py` measures how quickly each system
+reports a stage change, and `scripts/per_class_breakdown.py` gives the per-class picture.
+`runs/reproduce.ps1` runs all of them in order. [REPRODUCIBILITY.md](REPRODUCIBILITY.md) maps
+every reported experiment to its config and its run directory.
 
 ## Layout
 
 ```
 src/
-  data/preprocessing.py   EDF loading, wake trimming, normalisation, run manifest
-  data/normalization.py   trailing-window z-score, offline and online implementations
-  data/dataset.py         windowing, subject-wise CV splits, weighted sampler
-  model/                  causal conv, MRCNN, TCN, attention, classifier
-  train/                  focal and weighted-CE losses, cross-validation loop
-  eval/evaluate.py        metrics and CPU latency benchmark
-configs/                  default plus the ablation and streaming configs
-results/                  archived runs, see RESULTS.md
-scripts/verify_causality.py   end-to-end causality proof, writes a report
-scripts/validate_results.py   structural check on archived result CSVs
-smoke_test.py             fast pre-run sanity check
-tests/                    unit tests, including end-to-end causality
+  data/preprocessing.py    EDF loading, wake trimming, resampling, run manifest
+  data/normalization.py    trailing-window z-score, offline and online implementations
+  data/dataset.py          windowing, subject-wise CV splits, preprocessing-regime guard
+  model/                   causal convolution, MRCNN, TCN, attention, GRU, classifier
+  train/                   focal and weighted-CE losses, cross-validation loop
+  eval/evaluate.py         both evaluation protocols, metrics, CPU latency benchmark
+configs/                   one file per experiment, each writing to its own run directory
+scripts/                   preprocessing, verification, statistics and analysis
+runs/                      PowerShell drivers for whole experiments
+tests/                     unit tests, including end-to-end causality for both architectures
+results/                   curated per-fold CSVs and reports for every number reported
+docs/                      architecture notes for both sequence encoders
+figures/                   generated figures
 ```
 
-## Config notes
-
-- `sequence_length` (60) is the context in seconds. Longer gives the attention more history and
-  is the most useful knob if kappa is low. Must be a multiple of 30 for the 30-second reporting.
-- `causal` (true). Set to false only for the causality ablation.
-- `wake_trim_minutes` (30). Set to `null` to keep the full recordings.
-- `use_weighted_sampler` (false). Focal loss already handles the class imbalance; enabling both
-  makes the model over-predict N1 badly (precision drops to 0.12-0.20).
-- `checkpoint_metric` (kappa) selects which validation metric decides the saved checkpoint.
-  Macro F1 and kappa peak at different epochs, so this should match whichever you report.
-- `early_stopping_patience` (8). Validation plateaus by roughly epoch 10, so `epochs` is a cap
-  rather than a target.
-- Write `weight_decay` as `0.0001`, not `1e-4`. YAML parses the latter as a string and the
-  optimiser then fails.
+Run directories (`logs_*`, `checkpoints_*`) are not committed. The curated per-fold CSVs they
+produce are, under `results/`.
 
 ## Limitations
 
-- Single dataset (Sleep-EDF-20) and single channel, so fold variance is large: kappa ranges
-  0.537 to 0.711 across the five folds.
-- Supervision is 30-second labels replicated to 1 Hz, not genuine per-second scoring.
-- Validation peaks early and the model overfits past roughly epoch 10.
+- Both models are small, 20k and 31k parameters, and their absolute kappa is below published
+  offline systems on the same corpora. Whether a stronger model pays the same tiling penalty is
+  not tested here. Two architecture families in the same capacity class do not settle it.
+- The streaming protocol denies the non-causal arm the lookahead that defines it, so that
+  comparison is between deployment options rather than between architectures. At matched latency
+  the two datasets disagree: lookahead is worth nothing on Sleep-EDF-78 and about 0.014 kappa at
+  46 seconds of delay on DOD-H.
+- The non-causal arm is a matched twin rather than a state-of-the-art offline model, so the
+  comparison bounds what causality costs within this capacity class.
+- DOD-H holds out five subjects per fold and its fold-to-fold kappa standard deviation is 0.098,
+  four times Sleep-EDF-78's. It cannot resolve the between-arm difference, though it resolves the
+  within-arm protocol effect decisively. That asymmetry is itself a reported result.
+- Supervision is 30-second labels replicated to 1 Hz, so accuracy should be read with that in
+  mind and kappa is the more meaningful number.
+- Both datasets are single-channel EEG scored to AASM conventions.
 
-## Data and citation
+## Citation
 
-Sleep-EDF Expanded is distributed by PhysioNet under the Open Data Commons Attribution License
-v1.0. If you use this work, cite the dataset and PhysioNet:
+If you use this work, cite the datasets:
 
-> Kemp B, Zwinderman AH, Tuk B, Kamphuisen HAC, Oberyé JJL. Analysis of a sleep-dependent
+> Kemp B, Zwinderman AH, Tuk B, Kamphuisen HAC, Oberye JJL. Analysis of a sleep-dependent
 > neuronal feedback loop: the slow-wave microcontinuity of the EEG. IEEE Transactions on
 > Biomedical Engineering 47(9):1185-1194 (2000).
 
@@ -246,31 +239,31 @@ v1.0. If you use this work, cite the dataset and PhysioNet:
 > Components of a New Research Resource for Complex Physiologic Signals. Circulation
 > 101(23):e215-e220 (2000).
 
-To cite this repository:
+> Guillot A, Sauvet F, During EH, Thorey V. Dreem Open Datasets: multi-scored sleep datasets to
+> compare human and automated sleep staging. IEEE Transactions on Neural Systems and
+> Rehabilitation Engineering 28(9):1955-1965 (2020).
 
-```bibtex
-@software{causal_sleep_staging_2026,
-  author = {Jahnvi R and Swapnil S and Methuku, Shreeya and Dixit, Shreshtha},
-  title  = {Causal Sleep Staging: second-by-second sleep stage classification
-            from single-channel EEG},
-  year   = {2026},
-  url    = {https://github.com/swapnil5053/causal-sleep-staging}
-}
-```
+and this repository, using the metadata in [CITATION.cff](CITATION.cff).
 
 ## License
 
-Code released under the MIT License, see [LICENSE](LICENSE). The Sleep-EDF Expanded dataset is
-covered separately by its own Open Data Commons Attribution License and is not redistributed
+Code is released under the MIT License, see [LICENSE](LICENSE). Sleep-EDF Expanded is covered by
+the Open Data Commons Attribution License and DOD-H by its own terms; neither is redistributed
 here.
 
-## Credits
+## Contributors
 
-Capstone project at PES University (PW25_BJD_21).
+Capstone project at PES University, PW25_BJD_21, supervised by
+[Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
 
-- [Jahnvi R](https://github.com/jahnvi1504): initial codebase, model architecture, loss function design, and publication positioning
-- [Swapnil S](https://github.com/swapnil5053): data pipeline, training and evaluation, results analysis
-- [Shreeya Methuku](https://github.com/shreeya-methuku): technical writing and literature review
-- [Shreshtha Dixit](https://github.com/shreshtha-dixit): technical writing and literature review
-
-Supervised by [Dr. Bhaskarjyoti Das](https://scholar.google.co.in/citations?user=d6gtOwwAAAAJ&hl=en).
+- [Swapnil S](https://github.com/swapnil5053): data pipeline and preprocessing, including the
+  end-to-end causal normaliser and its streaming equivalence proof; the tiled and streaming
+  evaluation protocols; the DOD-H replication; the statistical treatment, including the
+  Nadeau-Bengio correction and the within-arm protocol estimand; the buffer-position, latency and
+  boundary-latency analyses; integration and experiments for the second architecture and its
+  matched control; results analysis and the manuscripts.
+- [Jahnvi R](https://github.com/jahnvi1504): initial codebase, the convolutional model
+  architecture and loss function design, the recurrent second-architecture variant, and
+  publication positioning.
+- [Shreeya Methuku](https://github.com/shreeya-methuku): literature review and technical writing.
+- [Shreshtha Dixit](https://github.com/shreshtha-dixit): literature review and technical writing.

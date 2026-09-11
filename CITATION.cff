@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Causal Sleep Staging"
+abstract: >-
+  Second-by-second sleep stage classification from single-channel EEG using only past signal,
+  with matched non-causal controls for two architectures, evaluated on two datasets under two
+  evaluation protocols.
+type: software
+authors:
+  - family-names: S
+    given-names: Swapnil
+    affiliation: "PES University, Bengaluru, India"
+  - family-names: R
+    given-names: Jahnvi
+    affiliation: "PES University, Bengaluru, India"
+  - family-names: Methuku
+    given-names: "Shreeya S"
+    affiliation: "PES University, Bengaluru, India"
+  - family-names: Dixit
+    given-names: Shreshtha
+    affiliation: "PES University, Bengaluru, India"
+repository-code: "https://github.com/swapnil5053/causal-sleep-staging"
+license: MIT
+keywords:
+  - sleep staging
+  - EEG
+  - causal models
+  - real-time inference
+  - evaluation methodology

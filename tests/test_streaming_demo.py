@@ -102,8 +102,8 @@ class BufferTests(unittest.TestCase):
     def test_trailing_prediction_labels_only_the_latest_second(self):
         """It must be the newest second's logits, not the oldest and not a constant.
 
-        Shape alone would pass for predict_window()[0] — labelling the oldest second in the
-        buffer, which is a causality bug — and for a hard-coded zero vector.
+        Shape alone would pass for predict_window()[0], labelling the oldest second in the
+        buffer, which is a causality bug, and for a hard-coded zero vector.
         """
         rng = np.random.default_rng(9)
         for _ in range(CONTEXT):
