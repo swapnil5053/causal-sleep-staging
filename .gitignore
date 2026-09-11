@@ -87,3 +87,6 @@ data/dod*/
 *.log
 
 BRANCH_NOTES.md
+
+# Manuscript sources, kept out of the repository until acceptance
+paper/
